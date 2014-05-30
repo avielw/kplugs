@@ -262,7 +262,11 @@ class Symbol(object):
 			raise Exception("Not a string")
 		ret = self._caller["kallsyms_lookup_name"](n)
 		if ret == 0:
-			raise Exception("The symbol '%s' doesn't exists" % (n, ))
+			ret = self._caller["find_symbol"](n, 0, 0, 1, 0)
+			if ret == 0:
+				raise Exception("The symbol '%s' doesn't exists" % (n, ))
+			else:
+				return struct.unpack("P", self._mem[ret:ret+WORD_SIZE])[0]
 		return ret
 
 	def release(self):

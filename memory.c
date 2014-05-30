@@ -16,7 +16,7 @@ MODULE_LICENSE("GPL");
 #include "env.h"
 #include "memory.h"
 
-/* check the permissions of a address and return its type */
+/* check the permissions of a address and return its type - */
 static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *read_only, byte *executable, struct task_struct *task)
 {
 	pte_t *pte;
@@ -28,6 +28,7 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 	byte local_read_only = 0;
 	byte local_executable = 0;
 	int ret = ADDR_UNDEF;
+	int atomic;
 
 	if (NULL == read_only) {
 		read_only = &local_read_only;
@@ -39,6 +40,12 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 
 	*read_only = 0;
 	*executable = 0;
+
+	atomic = in_atomic();
+
+	if (!atomic) {
+		down_read(&task->mm->mmap_sem);
+	}
 
 	while (start < end) {
 		if (task && task->mm) {
@@ -110,6 +117,9 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 	}
 
 end:
+	if (!atomic) {
+		up_read(&task->mm->mmap_sem);
+	}
 	if (total_size) {
 		if (total_size < *size) {
 			*size = total_size;
@@ -183,8 +193,8 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 {
 	word new_len = len;
 	int dst_type, src_type;
-	void *src_map = NULL;
 	void *dst_map = NULL;
+	void *src_map = NULL;
 	struct task_struct *dst_task = current;
 	struct task_struct *src_task = current;
 	struct pid *pid_struct;
@@ -196,28 +206,36 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 
 	/* load the correct task structs: */
 
+	if (dst_pid || src_pid) {
+		rcu_read_lock();
+	}
+
 	if (dst_pid) {
 		pid_struct = find_vpid(dst_pid);
 		 if (NULL == pid_struct) {
-			ERROR(-ERROR_PARAM);
+			err = -ERROR_PARAM;
+			goto clean;
 		}
 		dst_task = pid_task(pid_struct, PIDTYPE_PID);
 	}
 
 	if (NULL == dst_task) {
-		ERROR(-ERROR_PARAM);
+		err = -ERROR_PARAM;
+		goto clean;
 	}
 
 	if (src_pid) {
 		pid_struct = find_vpid(src_pid);
 		 if (NULL == pid_struct) {
-			ERROR(-ERROR_PARAM);
+			err = -ERROR_PARAM;
+			goto clean;
 		}
 		src_task = pid_task(pid_struct, PIDTYPE_PID);
 	}
 
 	if (NULL == src_task) {
-		ERROR(-ERROR_PARAM);
+		err = -ERROR_PARAM;
+		goto clean;
 	}
 
 
@@ -228,7 +246,8 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	} else {
 		dst_type = memory_check_addr_perm_task(dst, &new_len, 1, NULL, NULL, dst_task);
 		if (dst_type == ADDR_UNDEF || new_len != len) {
-			ERROR(-ERROR_POINT);
+			err = -ERROR_POINT;
+			goto clean;
 		}
 	}
 
@@ -237,7 +256,8 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	} else {
 		src_type = memory_check_addr_perm_task(src, &new_len, 0, NULL, NULL, src_task);
 		if (src_type == ADDR_UNDEF || new_len != len) {
-			ERROR(-ERROR_POINT);
+			err = -ERROR_POINT;
+			goto clean;
 		}
 	}
 
@@ -265,6 +285,10 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	memory_copy(dst, src, len);
 	err = 0;
 clean:
+	if (dst_pid || src_pid) {
+		rcu_read_unlock();
+	}
+
 	if (dst_map) {
 		memory_unmap(dst_map);
 	}

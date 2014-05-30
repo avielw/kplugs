@@ -114,13 +114,15 @@ int string_len(const char *s)
 /* find an external function by its name */
 void *find_external_function(const byte *name)
 {
+	const struct kernel_symbol *sym;
 #ifdef __KERNEL__
 #ifdef USE_KALLSYMS
 	unsigned long ret = kallsyms_lookup_name(name);
-	return (ret == 0 ? NULL : (void *)ret);
-#else
-	const struct kernel_symbol *sym;
 
+	if (ret != 0) {
+		return (void *)ret;
+	}
+#endif
 	preempt_disable();
 	sym = find_symbol(name, NULL, NULL, 1, 0);
 	preempt_enable();
@@ -128,7 +130,6 @@ void *find_external_function(const byte *name)
 		return (void *)(sym->value);
 	}
 	return NULL;
-#endif
 
 #else
 	return dlsym(RTLD_NEXT, (const char *)name);

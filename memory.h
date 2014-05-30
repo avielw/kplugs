@@ -25,7 +25,7 @@ typedef struct dyn_mem_s {
 	struct dyn_mem_s *next;
 	word size;
 
-	byte data[];
+	byte data[1];
 } dyn_mem_t;
 
 

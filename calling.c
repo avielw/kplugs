@@ -30,6 +30,7 @@ word standard_function_callback(STANDARD_FUNC_VARIABLES)
 	function_t *func = (function_t *)(wrapper_curfunc - offsetof(function_t, func_code));
 	word ret = 0;
 	word iter = 0;
+	int err;
 	stack_t arg_stack;
 	exception_t excep;
 
@@ -39,10 +40,10 @@ word standard_function_callback(STANDARD_FUNC_VARIABLES)
 	/* we don't really need it, but it can help avoiding race conditions if it is used incorrectly */
 	function_get(func);
 
-	ret = stack_alloc(&arg_stack, sizeof(word), CALL_STACK_SIZE);
-	if (ret < 0) {
+	err = stack_alloc(&arg_stack, sizeof(word), CALL_STACK_SIZE);
+	if (err < 0) {
 		function_put(func);
-		return ret;
+		return (word)err;
 	}
 
 	/* put all the arguments in the stack */
@@ -71,7 +72,7 @@ end:
 
 	function_put(func);
 
-	return ret;
+	return ret;	
 }
 
 /* we arrive to that function through the wrapper if it's a variable argument function */
@@ -81,6 +82,7 @@ word variable_argument_function_callback(word first_var, ...)
 	function_t *func = (function_t *)(wrapper_curfunc - offsetof(function_t, func_code));
 	word ret = 0;
 	word iter = 0;
+	int err;
 	va_list ap;
 	stack_t arg_stack;
 	exception_t excep;
@@ -91,10 +93,10 @@ word variable_argument_function_callback(word first_var, ...)
 	/* we don't really need it, but it can help avoiding race conditions if it is used incorrectly */
 	function_get(func);
 
-	ret = stack_alloc(&arg_stack, sizeof(word), CALL_STACK_SIZE);
-	if (ret < 0) {
+	err = stack_alloc(&arg_stack, sizeof(word), CALL_STACK_SIZE);
+	if (err < 0) {
 		function_put(func);
-		return ret;
+		return (word)err;
 	}
 
 	/* put all the arguments in the stack */

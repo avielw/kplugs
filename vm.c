@@ -279,6 +279,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 	word temp_value = 0, temp_value2 = 0;
 	word exception_var = 0;
 	word ret = 0;
+	byte ret_b = 0;
 
 	int err = 0;
 
@@ -305,6 +306,8 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 
 	state = push_state(func, &stack, func->num_vars + 1, 0);
 	if (NULL == state) { \
+		memory_free(cache);
+		cache = NULL;
 		err = -ERROR_MEM; \
 		goto clean; \
 	}
@@ -403,7 +406,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 							if (temp_value == sizeof(word)) {
 								*(word *)(vars[val1 - 1] + temp_value2) = state->val;
 							} else {
-								*(byte *)(vars[val1 - 1] + temp_value2) = state->val;
+								*(byte *)(vars[val1 - 1] + temp_value2) = (byte)state->val;
 							}
 							err = 0;
 						} else {
@@ -420,7 +423,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 							if (temp_value2 >= dyn->size) {
 								VM_THROW_EXCEPTION(ERROR_OOB);
 							}
-							*(byte *)(vars[val1 - 1] + temp_value2) = state->val;
+							*(byte *)(vars[val1 - 1] + temp_value2) = (byte)state->val;
 						} else {
 							err = safe_memory_copy(((byte *)vars[val1 - 1]) + temp_value2, &state->val, temp_value, ADDR_UNDEF, ADDR_INSIDE, 0, 0);
 						}
@@ -576,13 +579,17 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 				if (stage == 0) {
 					VM_ENTER_BLOCK(val1);
 				} else {
-					if (val2 != sizeof(byte) && val2 != sizeof(word)) {
+					if (val2 == sizeof(byte)) {
+						err = safe_memory_copy(&ret_b, (byte *)ret, sizeof(byte), ADDR_INSIDE, ADDR_UNDEF, 0, 0);
+						ret = (word)ret_b;
+					} else if (val2 == sizeof(word)) {
+						err = safe_memory_copy(&temp_value, (byte *)ret, sizeof(word), ADDR_INSIDE, ADDR_UNDEF, 0, 0);
+						ret = temp_value;
+					} else {
 						/* we should never get here! */
 						VM_THROW_EXCEPTION(ERROR_PARAM);
 					}
-					temp_value = ret;
-					ret = 0;
-					err = safe_memory_copy(&ret, (byte *)temp_value, val2, ADDR_INSIDE, ADDR_UNDEF, 0, 0);
+					
 					if (err < 0) {
 						VM_THROW_EXCEPTION(-err);
 					}
@@ -625,8 +632,10 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 							err = 0;
 						} else {
 							/* This is NOT a pointer and it's an argument */
-							ret = 0;
-							err = cache_memory_copy((byte *)vars[val1 - 1], (byte *)&ret, temp_value2, temp_value, state->func->code[val1].var.size, &cache[val1 - 1], 0);
+							err = cache_memory_copy((byte *)vars[val1 - 1], (temp_value == sizeof(byte)) ? &ret_b : (byte *)&ret, temp_value2, temp_value, state->func->code[val1].var.size, &cache[val1 - 1], 0);
+							if (temp_value == sizeof(byte)) {
+								ret = ret_b;
+							}
 						}
 					} else {
 						/* This is a pointer */
@@ -640,7 +649,10 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 							}
 							ret = *(byte *)(vars[val1 - 1] + temp_value2);
 						} else {
-							err = safe_memory_copy(&ret, ((byte *)vars[val1 - 1]) + temp_value2, temp_value, ADDR_INSIDE, ADDR_UNDEF, 0, 0);
+							err = safe_memory_copy((temp_value == sizeof(byte)) ? &ret_b : (byte *)&ret, ((byte *)vars[val1 - 1]) + temp_value2, temp_value, ADDR_INSIDE, ADDR_UNDEF, 0, 0);
+							if (temp_value == sizeof(byte)) {
+								ret = ret_b;
+							}
 						}
 					}
 					if (err < 0) {

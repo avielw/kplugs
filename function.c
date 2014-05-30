@@ -90,7 +90,7 @@ static int function_check_expression(	bytecode_t *code,
 										word recur,
 										word exception_var)
 {
-	word err = 0;
+	int err = 0;
 	word val1 = 0;
 	word val2 = 0;
 	word found = 0;

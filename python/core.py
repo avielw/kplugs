@@ -424,6 +424,11 @@ class Function(object):
 
 	# return the index of a string
 	def _get_string_value(self, string):
+		if string[:-1].count('\0') != 0:
+			raise Exception("Strings could not have nulls inside")
+		if len(string) > 0 and string[-1] == '\0':
+			string = string[:-1]
+
 		if self.string_table.count(string) == 0:
 			self.string_table.append(string)
 		return self.string_table.index(string) + 1
