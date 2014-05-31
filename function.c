@@ -655,8 +655,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 	while (index < codelen && code[index].op == OP_VARIABLE) {
 
 		if (!is_arg && code[index].var.is_arg) {
-			err = -ERROR_PARAM;
-			goto clean;
+			ERROR_CLEAN(-ERROR_PARAM);
 		}
 		to_add = 0;
 		if (is_arg) {
@@ -672,16 +671,14 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 
 		type = code[index].var.type;
 		if (type >= VAR_MAX) {
-			err = -ERROR_OP;
-			goto clean;
+			ERROR_CLEAN(-ERROR_OP);
 		}
 
 		switch (type) {
 		case VAR_WORD:
 		case VAR_POINTER:
 			if (code[index].var.size != sizeof(word)) {
-				err = -ERROR_PARAM;
-				goto clean;
+				ERROR_CLEAN(-ERROR_PARAM);
 			}
 
 			to_add = sizeof(word);
@@ -692,8 +689,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 			break;
 		case VAR_ARRAY:
 			if (code[index].var.size % sizeof(word)) {
-				err = -ERROR_PARAM;
-				goto clean;
+				ERROR_CLEAN(-ERROR_PARAM);
 			}
 			if (to_add == 0) {
 				to_add = sizeof(word) + code[index].var.size;
@@ -702,8 +698,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 			break;
 
 		default:
-			err = -ERROR_OP;
-			goto clean;
+			ERROR_CLEAN(-ERROR_OP);
 		}
 
 #ifdef DEBUG
@@ -731,8 +726,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 		}
 
 		if (to_add > MAX_STACK_FRAME || to_add + func->total_vars_size > MAX_STACK_FRAME) {
-			err = -ERROR_MEM;
-			goto clean;
+			ERROR_CLEAN(-ERROR_MEM);
 		}
 
 		if (is_arg) {
@@ -750,8 +744,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 		func->num_maxargs = index - 1;
 	}
 	if (func->num_maxargs > STACK_MAX_PARAMETERS || func->num_maxargs < func->num_minargs) {
-		err = -ERROR_ARGS;
-		goto clean;
+		ERROR_CLEAN(-ERROR_ARGS);
 	}
 
 
@@ -766,8 +759,7 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 		CHECK_ERROR(err);
 
 		if (err != max_index - index) {
-			err = (err < 0) ? err : -ERROR_EXPLO;
-			goto clean;
+			ERROR_CLEAN((err < 0) ? err : -ERROR_EXPLO);
 		}
 	}
 
@@ -776,14 +768,12 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 
 	if (max_string * sizeof(word) < max_string) {
 		/* integer overflow... */
-		err = -ERROR_PARAM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_PARAM);
 	}
 
 	func->string_table = memory_alloc(max_string * sizeof(word));
 	if (NULL == func->string_table) {
-		err = -ERROR_MEM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_MEM);
 	}
 
 	strings = (byte *)&code[max_index];
@@ -810,11 +800,10 @@ static int function_check(bytecode_t *code, word len, function_t *func)
 	/* the last one is not counted if it's not null terminated */
 
 	if (max_string > found) {
-		err = -ERROR_PARAM;
-	} else {
-		err = 0;
+		ERROR_CLEAN(-ERROR_PARAM);
 	}
 
+	err = 0;
 clean:
 	if (NULL != checktable) {
 		memory_free(checktable);
@@ -828,10 +817,7 @@ clean:
 
 	}
 
-	if (err < 0) {
-		ERROR(err);
-	}
-	return 0;
+	return err;
 }
 
 /* check if a function's name is valid */

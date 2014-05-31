@@ -107,7 +107,7 @@ int stack_is_empty(stack_t * stack)
 int stack_pop(stack_t *stack, void *elem)
 {
 	if (stack_is_empty(stack)) {
-		return -ERROR_SEMPTY;
+		return -ERROR_SEMPTY; /* most of the times it's not really an error */
 	}
 
 	if (stack->offset_inpage == 0) {

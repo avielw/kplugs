@@ -40,6 +40,7 @@ void context_unlock(context_t *cont)
 int context_add_function(context_t *cont, function_t *func)
 {
 	function_t *check_func = NULL;
+	int err = 0;
 
 	context_lock(cont);
 
@@ -50,8 +51,7 @@ int context_add_function(context_t *cont, function_t *func)
 		/* check that we don't have this function's name already */
 		while (check_func != NULL) {
 			if (!string_compare(check_func->name, func->name)) {
-				context_unlock(cont);
-				ERROR(-ERROR_FEXIST);
+				ERROR_CLEAN(-ERROR_FEXIST);
 			}
 			check_func = LIST_TO_STRUCT(function_t, list, check_func->list.next);
 		}
@@ -80,8 +80,9 @@ int context_add_function(context_t *cont, function_t *func)
 
 	func->cont = cont;
 
+clean:
 	context_unlock(cont);
-	return 0;
+	return err;
 }
 
 /* remove and delete a function from the context */
@@ -93,8 +94,7 @@ void context_free_function(function_t *func)
 
 	if (NULL == func->list.prev && NULL == func->list.next) {
 		/* This is a race condition! The function was already removed from the context... */
-		context_unlock(cont);
-		return;
+		goto clean;
 	}
 
 	func->list.prev->next = func->list.next;
@@ -107,6 +107,7 @@ void context_free_function(function_t *func)
 
 	function_put(func);
 
+clean:
 	context_unlock(cont);
 }
 
@@ -129,23 +130,21 @@ void context_free(context_t *cont)
 void *context_find_function(context_t *cont, byte *name)
 {
 	function_t *func;
-
+	
 	context_lock(cont);
 
 	func = LIST_TO_STRUCT(function_t, list, cont->funcs.next);
 	while (func != NULL) {
 		if (!string_compare(func->name, (char *)name)) {
 			function_get(func);
-
-			context_unlock(cont);
-			return func;
+			goto clean;
 		}
 		func = LIST_TO_STRUCT(function_t, list, func->list.next);
 	}
 
+clean:
 	context_unlock(cont);
-
-	return NULL;
+	return func;
 }
 
 /* find an anonymous function by address */
@@ -159,16 +158,14 @@ void *context_find_anonymous(context_t *cont, byte *ptr)
 	while (func != NULL) {
 		if (func->func_code == ptr) {
 			function_get(func);
-
-			context_unlock(cont);
-			return func;
+			goto clean;
 		}
 		func = LIST_TO_STRUCT(function_t, list, func->list.next);
 	}
 
+clean:
 	context_unlock(cont);
-
-	return NULL;
+	return func;
 }
 
 /* copy the reply back to the user */
@@ -195,23 +192,21 @@ int context_get_reply(context_t *cont, char *buf, word length)
 /* copy the last exception to inside or outside memory */
 int context_get_last_exception(context_t *cont, exception_t *excep)
 {
-	int ret;
+	int err;
 
 	context_lock(cont);
 
 	if (!cont->last_exception.had_exception) {
-		context_unlock(cont);
-
-		ERROR(-ERROR_PARAM);
+		ERROR_CLEAN(-ERROR_PARAM);
 	}
 
-	ret = safe_memory_copy(excep, &cont->last_exception, sizeof(exception_t), ADDR_UNDEF, ADDR_INSIDE, 0, 0);
+	err = safe_memory_copy(excep, &cont->last_exception, sizeof(exception_t), ADDR_UNDEF, ADDR_INSIDE, 0, 0);
 
 	cont->last_exception.had_exception = 0;
 
+clean:
 	context_unlock(cont);
-
-	return ret;
+	return err;
 }
 
 /* create a reply */

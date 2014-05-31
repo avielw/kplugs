@@ -134,7 +134,7 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 
 		code = memory_alloc(cmd->len1);
 		if (NULL == code) {
-			return create_error(file_cont, -ERROR_MEM);
+			ERROR(create_error(file_cont, -ERROR_MEM));
 		}
 
 		err = memory_copy_from_outside(code, cmd->uptr1, cmd->len1);
@@ -188,8 +188,9 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 			}
 			/* delete the function */
 			context_free_function(func);
-			function_put(func);
-			return count;
+			err = (int)count;
+
+			goto clean;
 		}
 
 		if (!cmd->is_global) {
@@ -216,8 +217,9 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 
 		/* delete the function */
 		context_free_function(func);
-		function_put(func);
-		return count;
+
+		err = (int)count;
+		goto clean;
 	break;
 
 	case KPLUGS_EXECUTE_ANONYMOUS:
@@ -242,30 +244,27 @@ execute_func:
 
 		args = cmd->len2 / sizeof(word);
 		if (args > func->num_maxargs || args < func->num_minargs) {
-			function_put(func);
-			return create_error(file_cont, -ERROR_ARGS);
+			ERROR_CLEAN(create_error(file_cont, -ERROR_ARGS));
 		}
 
 		err = stack_alloc(&stack, sizeof(word), CALL_STACK_SIZE);
 		if (err < 0) {
-			function_put(func);
-			return create_error(file_cont, err);
+			err = create_error(file_cont, err);
+			goto clean;
 		}
 
 		/* push the arguments to a stack */
 		for (iter = 0; iter < args; ++iter) {
 			err = memory_copy_from_outside(&arg, cmd->ptr2 + (iter * sizeof(word)), sizeof(arg));
-
 			if (err < 0) {
 				stack_free(&stack);
-				function_put(func);
-				return create_error(file_cont, err);
+				err = create_error(file_cont, err);
+				goto clean;
 			}
 
 			if (NULL == stack_push(&stack, &arg)) {
 				stack_free(&stack);
-				function_put(func);
-				return create_error(file_cont, -ERROR_MEM);
+				ERROR_CLEAN(create_error(file_cont, -ERROR_MEM));
 			}
 		}
 
@@ -273,26 +272,24 @@ execute_func:
 		arg = vm_run_function(func, &stack, &excep);
 
 		stack_free(&stack);
-		function_put(func);
 
 		if (excep.had_exception) {
 			err = -EINVAL; /* it dosen't really matter which error. the value of the error will be taken from the answer */
 			arg = excep.value;
 		} else {
-			err = count;
+			err = (int)count;
 		}
 
 		context_create_reply(file_cont, arg, &excep);
 
-		return err;
+		goto clean;
 
 	case KPLUGS_GET_LAST_EXCEPTION:
 		if (NULL != cmd->uptr2 || cmd->len1 < sizeof(exception_t) || cmd->len2) {
-			return create_error(file_cont, -ERROR_PARAM);
+			ERROR(create_error(file_cont, -ERROR_PARAM));
 		}
 
 		err = context_get_last_exception(file_cont, (exception_t *)cmd->ptr1);
-
 		if (err < 0) {
 			return create_error(file_cont, err);
 		}
@@ -336,28 +333,25 @@ static int __init kplugs_init(void)
 	err = context_create(&GLOBAL_CONTEXT);
 	if (err < 0) {
 		output_string("Couldn't create the global context.\n");
-		err = create_error(NULL, err);
-		goto end;
+		ERROR_CLEAN(create_error(NULL, err));
 	}
 
 	err = alloc_chrdev_region(&kplugs_devno , 0, 1, DEVICE_NAME);
 	if (err < 0) {
 		output_string("Couldn't allocate a region.\n");
-		goto clean_context;
+		ERROR_CLEAN(create_error(NULL, err));
 	}
 
 	kplugs_class = class_create(THIS_MODULE, DEVICE_NAME);
 	if (NULL == kplugs_class) {
 		output_string("Couldn't create class.\n");
-		err = -ENOMEM;
-		goto clean_region;
+		ERROR_CLEAN(-ENOMEM);
 	}
-
+	
 	kplugs_cdev = cdev_alloc();
 	if (NULL == kplugs_cdev) {
 		output_string("Couldn't allocate a cdev.\n");
-		err = -ENOMEM;
-		goto clean_class;
+		ERROR_CLEAN(-ENOMEM);
 	}
 
 	cdev_init(kplugs_cdev, &kplugs_ops);
@@ -365,29 +359,31 @@ static int __init kplugs_init(void)
 	err = cdev_add(kplugs_cdev, kplugs_devno, 1);
 	if (err < 0) {
 		output_string("Couldn't add the cdev.\n");
-		goto clean_cdev;
+		ERROR_CLEAN(create_error(NULL, err));
 	}
 
 	device = device_create(kplugs_class, NULL, kplugs_devno, NULL, DEVICE_NAME);
 	if (device == NULL) {
 		output_string("Couldn't create the device.\n");
-		err = -ENOMEM;
-		goto clean_cdev;
+		ERROR_CLEAN(-ENOMEM);
 	}
 
-	err = 0;
-	goto end;
+	return 0;
 
-clean_cdev:
-	cdev_del(kplugs_cdev);
-clean_class:
-	class_destroy(kplugs_class);
-clean_region:
-	unregister_chrdev_region(kplugs_devno, 1);
-clean_context:
-	context_free(GLOBAL_CONTEXT);
+clean:
+	if (NULL != kplugs_cdev) {
+		cdev_del(kplugs_cdev);
+	}
+	if (NULL != kplugs_class) {
+		class_destroy(kplugs_class);
+	}
+	if (kplugs_devno) {
+		unregister_chrdev_region(kplugs_devno, 1);
+	}
+	if (NULL != GLOBAL_CONTEXT) {
+		context_free(GLOBAL_CONTEXT);
+	}
 	memory_stop();
-end:
 	return err;
 }
 

@@ -213,29 +213,25 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	if (dst_pid) {
 		pid_struct = find_vpid(dst_pid);
 		 if (NULL == pid_struct) {
-			err = -ERROR_PARAM;
-			goto clean;
+			ERROR_CLEAN(-ERROR_PARAM);
 		}
 		dst_task = pid_task(pid_struct, PIDTYPE_PID);
 	}
 
 	if (NULL == dst_task) {
-		err = -ERROR_PARAM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_PARAM);
 	}
 
 	if (src_pid) {
 		pid_struct = find_vpid(src_pid);
 		 if (NULL == pid_struct) {
-			err = -ERROR_PARAM;
-			goto clean;
+			ERROR_CLEAN(-ERROR_PARAM);
 		}
 		src_task = pid_task(pid_struct, PIDTYPE_PID);
 	}
 
 	if (NULL == src_task) {
-		err = -ERROR_PARAM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_PARAM);
 	}
 
 
@@ -246,8 +242,7 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	} else {
 		dst_type = memory_check_addr_perm_task(dst, &new_len, 1, NULL, NULL, dst_task);
 		if (dst_type == ADDR_UNDEF || new_len != len) {
-			err = -ERROR_POINT;
-			goto clean;
+			ERROR_CLEAN(-ERROR_POINT);
 		}
 	}
 
@@ -256,8 +251,7 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 	} else {
 		src_type = memory_check_addr_perm_task(src, &new_len, 0, NULL, NULL, src_task);
 		if (src_type == ADDR_UNDEF || new_len != len) {
-			err = -ERROR_POINT;
-			goto clean;
+			ERROR_CLEAN(-ERROR_POINT);
 		}
 	}
 
@@ -296,10 +290,7 @@ clean:
 		memory_unmap(src_map);
 	}
 
-	if (err < 0) {
-		ERROR(err);
-	}
-	return 0;
+	return err;
 }
 
 EXPORT_SYMBOL(safe_memory_copy);
@@ -501,7 +492,7 @@ void *memory_alloc_exec(word size)
 		return NULL;
 	}
 
-	if (size >= 0x400) {
+	if (size >= ((PAGE_SIZE - sizeof(heap_t)) / 2)) {
 		/* big buffers receive a whole page */
 #ifdef __KERNEL__
 		ret = __vmalloc(size, GFP_ATOMIC, PAGE_KERNEL_EXEC);

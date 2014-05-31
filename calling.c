@@ -106,9 +106,7 @@ word variable_argument_function_callback(word first_var, ...)
 	for (iter = 0; iter < func->num_maxargs; ++iter) {
 		ret = (iter == 0) ? first_var : va_arg(ap, word);
 		if (NULL == stack_push(&arg_stack, &ret)) {
-			stack_free(&arg_stack);
-			function_put(func);
-			ERROR(-ERROR_MEM);
+			ERROR_CLEAN(-ERROR_MEM);
 		}
 	}
 
@@ -117,9 +115,14 @@ word variable_argument_function_callback(word first_var, ...)
 	/* execute the function on the vm */
 	ret = vm_run_function(func, &arg_stack, &excep);
 
+clean:
 	stack_free(&arg_stack);
 
 	function_put(func);
+
+	if (err < 0) {
+		return (word)err;
+	}
 
 	return ret;
 }

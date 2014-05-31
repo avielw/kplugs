@@ -3,6 +3,23 @@
 #include "stack.h"
 #include "env.h"
 
+/* restore a state when returning from a function */
+#define STATE_RESTORE(func) do { \
+	if (cache) { \
+		cache_clean(cache, calling_function->num_maxargs); \
+		memory_free(cache); \
+	} \
+	if (vars) { \
+		memory_free(vars); \
+	} \
+	function_put(func); \
+	vars = state->vars; \
+	cache = state->cache; \
+	state->vars = NULL; \
+	state->cache = NULL; \
+	recur--; \
+} while (0)
+			
 /* calling a KPlugs function using the VM */
 #define VM_CALL(new_func) do { \
 	if (recur >= MAX_CALL_RECUR) { \
@@ -15,26 +32,22 @@
 	vars = memory_alloc(new_func->num_vars * sizeof(word)); \
 	if (NULL == vars) { \
 		vars = state->vars; \
+		recur--; \
 		function_put(new_func); \
 		VM_THROW_EXCEPTION(ERROR_MEM); \
 	} \
 	cache = memory_alloc(new_func->num_maxargs * sizeof(arg_cache_t)); \
 	if (NULL == cache) { \
-		memory_free(vars); \
-		vars = state->vars; \
-		cache = state->cache; \
-		function_put(new_func); \
+		STATE_RESTORE(new_func); \
 		VM_THROW_EXCEPTION(ERROR_MEM); \
 	} \
-	state = push_state(new_func, &stack, new_func->num_vars + 1, 0); \
-	if (NULL == state) { \
-		memory_free(vars); \
-		memory_free(cache); \
-		vars = state->vars; \
-		cache = state->cache; \
-		function_put(new_func); \
+	cache_init(cache, new_func->num_maxargs); \
+	new_state = push_state(new_func, &stack, new_func->num_vars + 1, 0); \
+	if (NULL == new_state) { \
+		STATE_RESTORE(new_func); \
 		VM_THROW_EXCEPTION(ERROR_MEM); \
 	} \
+	state = new_state; \
 	err = vm_init_local_variable(state, arg_stack, vars, cache); \
 	if (err < 0) { \
 		VM_THROW_EXCEPTION(err); \
@@ -62,21 +75,13 @@
 		calling_function = state->func; \
 		state = stack_peek(&stack); \
 		if (NULL == state) { \
-			err = -ERROR_SEMPTY; \
-			goto clean; \
+			ERROR_CLEAN(-ERROR_SEMPTY); \
 		} \
 		if (	state->func->code[state->pc].op == OP_EXPRESSION && \
 				(state->func->code[state->pc].flow.type == EXP_CALL_STRING || \
 				 state->func->code[state->pc].flow.type == EXP_CALL_PTR) && \
 				state->vars != NULL) { \
-			memory_free(vars); \
-			cache_clean(cache, calling_function->num_maxargs); \
-			memory_free(cache); \
-			function_put(calling_function); \
-			vars = state->vars; \
-			cache = state->cache; \
-			recur--; \
-			state->vars = NULL; \
+			STATE_RESTORE(calling_function); \
 		} \
 	} \
 	temp_value = state->exception_handler; \
@@ -97,8 +102,7 @@
 #define VM_ENTER_BLOCK(new_pc) do { \
 	state = push_state(state->func, &stack, new_pc, state->args); \
 	if (NULL == state) { \
-		err = -ERROR_MEM; \
-		goto clean; \
+		ERROR_CLEAN(-ERROR_MEM); \
 	} \
 } while (0); continue
 
@@ -110,8 +114,7 @@
 	if (!stack_is_empty(&stack)) { \
 		state = stack_peek(&stack); \
 		if (NULL == state) { \
-			err = -ERROR_SEMPTY; \
-			goto clean; \
+			ERROR_CLEAN(-ERROR_SEMPTY); \
 		} \
 		state->stage++; \
 	} \
@@ -131,23 +134,15 @@
 		calling_function = state->func; \
 		state = stack_peek(&stack); \
 		if (NULL == state) { \
-			err = -ERROR_SEMPTY; \
-			goto clean; \
+			ERROR_CLEAN(-ERROR_SEMPTY); \
 		} \
 		if (	state->func->code[state->pc].op == OP_EXPRESSION && \
 				(state->func->code[state->pc].flow.type == EXP_CALL_STRING || \
 				 state->func->code[state->pc].flow.type == EXP_CALL_PTR) && \
 				state->vars != NULL) { \
 			/* we should always get here */ \
-			memory_free(vars); \
-			cache_clean(cache, calling_function->num_maxargs); \
-			memory_free(cache); \
-			function_put(calling_function); \
-			vars = state->vars; \
-			cache = state->cache; \
-			state->vars = NULL; \
+			STATE_RESTORE(calling_function); \
 			ret = value; \
-			recur--; \
 			DEBUG_PRINT("Return value: 0x%lx\n", value); \
 			break; \
 		} \
@@ -184,8 +179,6 @@ static int vm_init_local_variable(vm_state_t *state, stack_t *arg_stack, word *v
 	word data_offset = sizeof(word) * state->func->num_vars;
 
 	state->args = 0;
-
-	cache_init(cache, state->func->num_maxargs);
 
 	/* load the arguments (in reversed order) */
 	while ((!stack_pop(arg_stack, &vars[iter - 1])) && iter > 0) {
@@ -266,6 +259,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 	dyn_mem_t dyn_head;
 
 	vm_state_t *state;
+	vm_state_t *new_state;
 	stack_t stack;
 
 	function_t *calling_function = NULL;
@@ -294,22 +288,19 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 
 	vars = memory_alloc(func->total_vars_size);
 	if (NULL == vars) {
-		err = -ERROR_MEM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_MEM);
 	}
 
 	cache = memory_alloc(func->num_maxargs * sizeof(arg_cache_t));
 	if (NULL == cache) {
-		err = -ERROR_MEM;
-		goto clean;
+		ERROR_CLEAN(-ERROR_MEM);
 	}
+
+	cache_init(cache, func->num_maxargs);
 
 	state = push_state(func, &stack, func->num_vars + 1, 0);
 	if (NULL == state) { \
-		memory_free(cache);
-		cache = NULL;
-		err = -ERROR_MEM; \
-		goto clean; \
+		ERROR_CLEAN(-ERROR_MEM);
 	}
 
 
@@ -325,9 +316,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 
 	/* load the arguments and local variable */
 	err = vm_init_local_variable(state, arg_stack, vars, cache);
-	if (err < 0) {
-		goto clean;
-	}
+	CHECK_ERROR(err);
 
 	while (!stack_is_empty(&stack)) {
 
@@ -773,8 +762,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 				/* in this stage we are pushing the previous argument */
 				if (stage > 1) {
 					if (NULL == stack_push(arg_stack, &ret)) {
-						ret = -ERROR_MEM;
-						goto clean;
+						ERROR_CLEAN(-ERROR_MEM);
 					}
 				}
 
@@ -955,6 +943,6 @@ clean:
 	/* an error (outside the VM) occurred */
 	excep->had_exception = 1;
 	excep->value = -err;
-	ERROR(err);
+	return (word)err;
 }
 

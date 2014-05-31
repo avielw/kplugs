@@ -97,10 +97,16 @@ inline int atomic_dec_and_test(atomic_t *atom);
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
+#define ERROR_PRINT(n) DEBUG_PRINT("ERROR %d: in line %d of file \"%s\"\n", n, __LINE__, __FILE__)
+
 #define ERROR(n) if (n) { \
-	DEBUG_PRINT("ERROR %d: in line %d of file \"%s\"\n", n, __LINE__, __FILE__); \
+	ERROR_PRINT(n); \
 	return n; \
 } else return 0
+
+#define ERROR_CLEAN(n) if (n) { \
+	ERROR_PRINT(n); \
+} err = n; goto clean
 
 #define CHECK_ERROR(err) do { \
 	if ((err) < 0) { goto clean; } \
