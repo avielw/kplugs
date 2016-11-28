@@ -4,6 +4,7 @@
 
 #include <linux/sched.h>
 #include <linux/kernel.h>
+#include <linux/vmalloc.h>
 #include <linux/module.h>
 #include <linux/mm_types.h>
 #include <linux/uaccess.h>
@@ -17,11 +18,9 @@ MODULE_LICENSE("GPL");
 #include "memory.h"
 
 /* check the permissions of a address and return its type - */
-static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *read_only, byte *executable, struct task_struct *task)
+static int memory_check_addr_perm_task(const void *addr, word *size, int write, byte *read_only, byte *executable, struct task_struct *task)
 {
-	pte_t *pte;
 	struct vm_area_struct *vma;
-	unsigned int level;
 	word start = ROUNDDOWN((word)addr, PAGE_SIZE);
 	word end = ROUNDUP((word)addr + *size, PAGE_SIZE);
 	word total_size = 0;
@@ -29,6 +28,10 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 	byte local_executable = 0;
 	int ret = ADDR_UNDEF;
 	int atomic;
+#ifdef HAS_LOOKUP_ADDRESS
+	pte_t *pte;
+	unsigned int level;
+#endif
 
 	if (NULL == read_only) {
 		read_only = &local_read_only;
@@ -49,7 +52,7 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 
 	while (start < end) {
 		if (task && task->mm) {
-			/* check if it's a user pointer */
+			/* check if it's a user address */
 			vma = find_vma(task->mm, start);
 			if (vma && vma->vm_start <= start) {
 				if (ret != ADDR_UNDEF && ret != ADDR_OUTSIDE) {
@@ -80,7 +83,9 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 			}
 		}
 
-		/* check if it's a kernel pointer */
+		/* check if it's a kernel virtual address */
+
+#ifdef HAS_LOOKUP_ADDRESS
 		pte = lookup_address((unsigned long)addr, &level);
 		if (NULL == pte) {
 			goto end;
@@ -114,6 +119,23 @@ static int memory_check_addr_perm_task(void *addr, word *size, int write, byte *
 			continue;
 		}
 		goto end;
+#else
+		if (ret != ADDR_UNDEF && ret != ADDR_INSIDE) {
+			goto end;
+		}
+
+		if (	start >= PAGE_OFFSET ||
+			(start >= MODULES_VADDR && start < MODULES_END) ||
+			(start >= VMALLOC_START && start < VMALLOC_END)) {
+			/* this is not totally safe. but it's enough for now. */
+			*executable = 1;
+			start += PAGE_SIZE;
+			total_size = start - (word)addr;
+			ret = ADDR_INSIDE;
+			continue;
+		}
+		goto end;
+#endif
 	}
 
 end:
@@ -132,7 +154,7 @@ end:
 
 
 /* map an outside memory to an inside memory by task */
-static int memory_map_task(byte *addr, word *size, void **map, byte **new_addr, int write, struct task_struct *task)
+static int memory_map_task(const byte *addr, word *size, void **map, byte **new_addr, int write, struct task_struct *task)
 {
 	word start;
 	word offset;
@@ -162,7 +184,7 @@ static int memory_map_task(byte *addr, word *size, void **map, byte **new_addr, 
 		ERROR(-ERROR_MEM);
 	}
 
-	ret = get_user_pages(task, task->mm, start, npages, write, 0, pages, NULL);
+	ret = get_user_pages_remote(task, task->mm, start, npages, write, 0, pages, NULL);
 	if (ret <= 0) {
 		memory_free(pages);
 		ERROR(-ERROR_POINT);
@@ -178,7 +200,11 @@ static int memory_map_task(byte *addr, word *size, void **map, byte **new_addr, 
 
 	BUG_ON((int)*size < 0);
 
+#ifndef PAGE_KERNEL_RO
+	*map = vmap(pages, npages, 0, PAGE_KERNEL);
+#else
 	*map = vmap(pages, npages, 0, write ? PAGE_KERNEL : PAGE_KERNEL_RO);
+#endif
 	memory_free(pages);
 	if (NULL == *map) {
 		ERROR(-ERROR_POINT);
@@ -189,7 +215,7 @@ static int memory_map_task(byte *addr, word *size, void **map, byte **new_addr, 
 }
 
 /* copy memory from safely from any type of memory to any type of memory (optional - from different processes) */
-int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint, word dst_pid, word src_pid)
+int safe_memory_copy(void *dst, const void *src, word len, int dst_hint, int src_hint, word dst_pid, word src_pid)
 {
 	word new_len = len;
 	int dst_type, src_type;
@@ -296,14 +322,14 @@ clean:
 EXPORT_SYMBOL(safe_memory_copy);
 
 /* check memory permissions */
-int memory_check_addr_perm(byte *addr, word *size, int write, byte *read_only)
+int memory_check_addr_perm(const byte *addr, word *size, int write, byte *read_only)
 {
 	return memory_check_addr_perm_task(addr, size, write, read_only, NULL, current);
 }
 
 
 /* check if a memory is executable */
-int memory_check_addr_exec(byte *addr)
+int memory_check_addr_exec(const byte *addr)
 {
 	byte exec = 0;
 	word size = 1;
@@ -315,7 +341,7 @@ int memory_check_addr_exec(byte *addr)
 }
 
 /* map an outside memory to an inside memory */
-int memory_map(byte *addr, word *len, void **map, byte **new_addr, int write)
+int memory_map(const byte *addr, word *len, void **map, byte **new_addr, int write)
 {
 	return memory_map_task(addr, len, map, new_addr, write, current);
 }
@@ -341,7 +367,7 @@ int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint,
 }
 
 /* check memory permissions */
-int memory_check_addr_perm(byte *addr, word *size, int write, byte *read_only)
+int memory_check_addr_perm(const byte *addr, word *size, int write, byte *read_only)
 {
 	if (NULL != read_only) {
 		*read_only = 0;
@@ -350,14 +376,14 @@ int memory_check_addr_perm(byte *addr, word *size, int write, byte *read_only)
 }
 
 /* check if a memory is executable */
-int memory_check_addr_exec(byte *addr)
+int memory_check_addr_exec(const byte *addr)
 {
 	/* we don't really check anything if there is no outside memory */
 	return 1;
 }
 
 /* map an outside memory to an inside memory */
-int memory_map(byte *addr, word *size, void **map, byte **new_addr, int write)
+int memory_map(const byte *addr, word *size, void **map, byte **new_addr, int write)
 {
 	/* all the memories are inside memory so this should never be called */
 	*new_addr = addr;

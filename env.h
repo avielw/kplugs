@@ -24,13 +24,13 @@ void *memory_alloc(word size);
 void memory_free(void *mem);
 
 /* copy data from inside memory to inside memory */
-void *memory_copy(void *dst, void *src, word len);
+void *memory_copy(void *dst, const void *src, word len);
 
 /* copy data from outside memory to inside memory */
-int memory_copy_from_outside(void *dst, void *src, word len);
+int memory_copy_from_outside(void *dst, const void *src, word len);
 
 /* copy data from inside memory to outside memory */
-int memory_copy_to_outside(void *dst, void *src, word len);
+int memory_copy_to_outside(void *dst, const void *src, word len);
 
 /* set the value of an inside memory */
 void *memory_set(void *str, int ch, word num);

@@ -26,6 +26,8 @@ static const char *expression_names[] = {
 		"+",
 		"-",
 		"*",
+		"*",
+		"/",
 		"/",
 		"&",
 		"^",
@@ -305,13 +307,15 @@ static int function_check_expression(	bytecode_t *code,
 
 			return found;
 
+		case EXP_MUL_UNSIGN:
+		case EXP_DIV_UNSIGN:
 		case EXP_CMP_UNSIGN:
 			/* we want to print extra data */
 			DEBUG_PRINT("unsigned");
 		case EXP_ADD:
 		case EXP_SUB:
-		case EXP_MUL:
-		case EXP_DIV:
+		case EXP_MUL_SIGN:
+		case EXP_DIV_SIGN:
 		case EXP_AND:
 		case EXP_OR:
 		case EXP_BOOL_AND:
@@ -326,6 +330,19 @@ static int function_check_expression(	bytecode_t *code,
 			DEBUG_PRINT(" %s ", expression_names[code[index].expression.type]);
 
 			CHECK_EXPRESSION(val2);
+
+			DEBUG_PRINT(")");
+
+			return found;
+
+		case EXP_EXT_SIGN:
+			if (val2) {
+				ERROR(-ERROR_PARAM);
+			}
+
+			DEBUG_PRINT("EXT(");
+
+			CHECK_EXPRESSION(val1);
 
 			DEBUG_PRINT(")");
 
@@ -875,7 +892,6 @@ int function_create(bytecode_t *code, word len, function_t **func)
 		*(word *)GET_FUNCTION_CALLBACK(*func) = (word)standard_function_callback;
 	}
 	err = 0;
-
 
 	if (code[0].func.name) {
 		(*func)->name = (char *)((*func)->raw) + (*func)->string_table[code[0].func.name - 1];

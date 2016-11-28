@@ -169,7 +169,7 @@ clean:
 }
 
 /* copy the reply back to the user */
-int context_get_reply(context_t *cont, char *buf, word length)
+int context_get_reply(context_t *cont, void *buf, word length)
 {
 	word copy;
 
@@ -178,7 +178,7 @@ int context_get_reply(context_t *cont, char *buf, word length)
 	/* return an answer if there is one */
 	if (cont->has_answer) {
 		copy = (length > sizeof(kplugs_command_t)) ? sizeof(kplugs_command_t) : length;
-		memory_copy(buf, &cont->cmd, copy);
+		memory_copy_to_outside(buf, &cont->cmd, copy);
 		cont->has_answer = 0;
 	} else {
 		copy = 0;

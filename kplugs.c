@@ -74,7 +74,7 @@ static int kplugs_release(struct inode *inode, struct file *filp)
 }
 
 /* read callback */
-static ssize_t kplugs_read(struct file *filp, char *buf, size_t count, loff_t *f_pos)
+static ssize_t kplugs_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	context_t *cont = (context_t *)filp->private_data;
 
@@ -82,15 +82,15 @@ static ssize_t kplugs_read(struct file *filp, char *buf, size_t count, loff_t *f
 }
 
 /* write callback */
-static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, loff_t *f_pos)
+static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
-	kplugs_command_t *cmd = NULL;
+	kplugs_command_t cmd;
 	context_t *file_cont = NULL;
 	context_t *cont = NULL;
 	bytecode_t *code = NULL;
 	function_t *func = NULL;
 	exception_t excep;
-	stack_t stack;
+	kpstack_t stack;
 	word iter, arg;
 	word args;
 	byte little_endian;
@@ -102,19 +102,22 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 #else
 	little_endian = 0;
 #endif
-	/* get the user's command */
-	cmd = (kplugs_command_t *)buf;
 	file_cont = (context_t *)filp->private_data;
 
 	if (count < sizeof(byte) * 3) { /* three bytes of header */
 		return create_error(file_cont, -ERROR_PARAM);
 	}
 
-	if (cmd->word_size != sizeof(word) || cmd->l_endian != little_endian) {
+	err = memory_copy_from_outside(&cmd, buf, count < sizeof(kplugs_command_t) ? count : sizeof(kplugs_command_t));
+	if (err < 0) {
+		return create_error(file_cont, err);
+	}
+
+	if (cmd.word_size != sizeof(word) || cmd.l_endian != little_endian) {
 		return create_error(file_cont, -ERROR_ARCH);
 	}
 
-	if (cmd->version_major != VERSION_MAJOR || cmd->version_minor != VERSION_MINOR) {
+	if (cmd.version_major != VERSION_MAJOR || cmd.version_minor != VERSION_MINOR) {
 		return create_error(file_cont, -ERROR_VERSION);
 	}
 
@@ -122,29 +125,29 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 		return create_error(file_cont, -ERROR_PARAM);
 	}
 
-	cont = cmd->is_global ? GLOBAL_CONTEXT : file_cont;
+	cont = cmd.is_global ? GLOBAL_CONTEXT : file_cont;
 
-	switch (cmd->type) {
+	switch (cmd.type) {
 	case KPLUGS_LOAD:
 		/* load a new function */
 
-		if (cmd->len2 != 0 || cmd->ptr2 != NULL) {
+		if (cmd.len2 != 0 || cmd.ptr2 != NULL) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
 
-		code = memory_alloc(cmd->len1);
+		code = memory_alloc(cmd.len1);
 		if (NULL == code) {
 			ERROR(create_error(file_cont, -ERROR_MEM));
 		}
 
-		err = memory_copy_from_outside(code, cmd->uptr1, cmd->len1);
+		err = memory_copy_from_outside(code, cmd.uptr1, cmd.len1);
 		if (err < 0) {
 			err = create_error(file_cont, err);
 			goto clean;
 		}
 
 		/* create the function */
-		err = function_create(code, cmd->len1, &func);
+		err = function_create(code, cmd.len1, &func);
 		if (err < 0) {
 			err = create_error(file_cont, err);
 			goto clean;
@@ -163,25 +166,25 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 
 	case KPLUGS_UNLOAD:
 		/* unload a function with a name */
-		if (NULL != cmd->uptr2) {
+		if (NULL != cmd.uptr2) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
 	case KPLUGS_EXECUTE:
 		/* execute (and unload) a function with a name */
-		if (cmd->len1 > MAX_FUNC_NAME || (cmd->len2 % sizeof(word)) != 0) {
+		if (cmd.len1 > MAX_FUNC_NAME || (cmd.len2 % sizeof(word)) != 0) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
 
-		err = memory_copy_from_outside(func_name, cmd->uptr1, cmd->len1);
+		err = memory_copy_from_outside(func_name, cmd.uptr1, cmd.len1);
 		if (err < 0) {
 			return create_error(file_cont, err);
 		}
 
-		func_name[cmd->len1] = '\0';
+		func_name[cmd.len1] = '\0';
 
 		/* find the function */
 
-		if (cmd->type == KPLUGS_UNLOAD) {
+		if (cmd.type == KPLUGS_UNLOAD) {
 			func = context_find_function(cont, func_name);
 			if (NULL == func) {
 				return create_error(file_cont, -ERROR_UFUNC);
@@ -193,7 +196,7 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 			goto clean;
 		}
 
-		if (!cmd->is_global) {
+		if (!cmd.is_global) {
 			func = context_find_function(file_cont, func_name);
 		}
 		if (NULL == func) {
@@ -207,10 +210,10 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 
 	case KPLUGS_UNLOAD_ANONYMOUS:
 		/* unload an anonymous function */
-		if (NULL != cmd->uptr2 || cmd->len1 || cmd->len2) {
+		if (NULL != cmd.uptr2 || cmd.len1 || cmd.len2) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
-		func = context_find_anonymous(cont, cmd->ptr1);
+		func = context_find_anonymous(cont, cmd.ptr1);
 		if (NULL == func) {
 			return create_error(file_cont, -ERROR_UFUNC);
 		}
@@ -224,16 +227,16 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 
 	case KPLUGS_EXECUTE_ANONYMOUS:
 		/* execute (and unload) an anonymous function */
-		if (cmd->len1 || (cmd->len2 % sizeof(word)) != 0) {
+		if (cmd.len1 || (cmd.len2 % sizeof(word)) != 0) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
 
 		/* find the function */
-		if (!cmd->is_global) {
-			func = context_find_anonymous(file_cont, cmd->ptr1);
+		if (!cmd.is_global) {
+			func = context_find_anonymous(file_cont, cmd.ptr1);
 		}
 		if (NULL == func) {
-			func = context_find_anonymous(GLOBAL_CONTEXT, cmd->ptr1);
+			func = context_find_anonymous(GLOBAL_CONTEXT, cmd.ptr1);
 			if (NULL == func) {
 				return create_error(file_cont, -ERROR_UFUNC);
 			}
@@ -242,7 +245,7 @@ static ssize_t kplugs_write(struct file *filp, const char *buf, size_t count, lo
 execute_func:
 		/* do the execution of a function: */
 
-		args = cmd->len2 / sizeof(word);
+		args = cmd.len2 / sizeof(word);
 		if (args > func->num_maxargs || args < func->num_minargs) {
 			ERROR_CLEAN(create_error(file_cont, -ERROR_ARGS));
 		}
@@ -255,7 +258,7 @@ execute_func:
 
 		/* push the arguments to a stack */
 		for (iter = 0; iter < args; ++iter) {
-			err = memory_copy_from_outside(&arg, cmd->ptr2 + (iter * sizeof(word)), sizeof(arg));
+			err = memory_copy_from_outside(&arg, cmd.ptr2 + (iter * sizeof(word)), sizeof(arg));
 			if (err < 0) {
 				stack_free(&stack);
 				err = create_error(file_cont, err);
@@ -285,11 +288,11 @@ execute_func:
 		goto clean;
 
 	case KPLUGS_GET_LAST_EXCEPTION:
-		if (NULL != cmd->uptr2 || cmd->len1 < sizeof(exception_t) || cmd->len2) {
+		if (NULL != cmd.uptr2 || cmd.len1 < sizeof(exception_t) || cmd.len2) {
 			ERROR(create_error(file_cont, -ERROR_PARAM));
 		}
 
-		err = context_get_last_exception(file_cont, (exception_t *)cmd->ptr1);
+		err = context_get_last_exception(file_cont, (exception_t *)cmd.ptr1);
 		if (err < 0) {
 			return create_error(file_cont, err);
 		}

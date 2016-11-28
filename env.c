@@ -54,14 +54,14 @@ void memory_free(void *mem)
 }
 
 /* copy data from inside memory to inside memory */
-void *memory_copy(void *dst, void *src, word len)
+void *memory_copy(void *dst, const void *src, word len)
 {
 	return memcpy(dst, src, len);
 }
 
 
 /* copy data from outside memory to inside memory */
-int memory_copy_from_outside(void *dst, void *src, word len)
+int memory_copy_from_outside(void *dst, const void *src, word len)
 {
 #ifdef __KERNEL__
 	return safe_memory_copy(dst, src, len, ADDR_INSIDE, ADDR_OUTSIDE, 0, 0);
@@ -73,7 +73,7 @@ int memory_copy_from_outside(void *dst, void *src, word len)
 
 
 /* copy data from inside memory to outside memory */
-int memory_copy_to_outside(void *dst, void *src, word len)
+int memory_copy_to_outside(void *dst, const void *src, word len)
 {
 #ifdef __KERNEL__
 	return safe_memory_copy(dst, src, len, ADDR_OUTSIDE, ADDR_INSIDE, 0, 0);

@@ -4,7 +4,7 @@
 #define CONFIG
 
 #define VERSION_MAJOR		(1)
-#define VERSION_MINOR		(0)
+#define VERSION_MINOR		(1)
 
 #define MAX_RECUR			(20)
 #define MAX_CALL_RECUR		(30)
@@ -30,6 +30,10 @@
 
 /* will use the function kallsyms_lookup_name instead of find_symbol - works a lot better */ 
 #define USE_KALLSYMS
+
+#if defined(CONFIG_X86_64) || defined(CONFIG_X86_32)
+#define HAS_LOOKUP_ADDRESS
+#endif
 
 #endif
 

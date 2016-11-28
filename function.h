@@ -43,8 +43,10 @@ typedef enum {
 	EXP_BUF_OFFSET,
 	EXP_ADD,
 	EXP_SUB,
-	EXP_MUL,
-	EXP_DIV,
+	EXP_MUL_UNSIGN,
+	EXP_MUL_SIGN,
+	EXP_DIV_UNSIGN,
+	EXP_DIV_SIGN,
 	EXP_AND,
 	EXP_XOR,
 	EXP_OR,
@@ -59,6 +61,7 @@ typedef enum {
 	EXP_CMP_EQ,
 	EXP_CMP_UNSIGN,
 	EXP_CMP_SIGN,
+	EXP_EXT_SIGN,
 
 	EXP_DYN_ALLOC, /* allocate a dynamic buffer */
 
@@ -153,7 +156,7 @@ typedef union {
 
 
 /* a function struct */
-typedef struct {
+typedef struct function_st {
 	list_head_t list;
 	atomic_t ref_count;
 

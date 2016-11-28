@@ -29,7 +29,7 @@ typedef word (standard_function_t)(STANDARD_FUNC_VARIABLES);
 typedef word (variable_argument_function_t)(word first_var, ...);
 
 /* call an external function (not a vm function) */
-word call_external_function(void *external_function, stack_t *arg_stack, word flags);
+word call_external_function(void *external_function, kpstack_t *arg_stack, word flags);
 
 
 

@@ -30,7 +30,7 @@ typedef struct dyn_mem_s {
 
 
 /* copy memory from safely from any type of memory to any type of memory (optional - from different processes) */
-int safe_memory_copy(void *dst, void *src, word len, int dst_hint, int src_hint, word dst_pid, word src_pid);
+int safe_memory_copy(void *dst, const void *src, word len, int dst_hint, int src_hint, word dst_pid, word src_pid);
 
 /* allocate executable and writable memory */
 void *memory_alloc_exec(word size);
@@ -55,13 +55,13 @@ int memory_free_dyn(dyn_mem_t *head, void *ptr);
 dyn_mem_t *get_dyn_mem(dyn_mem_t *head, void *ptr);
 
 /* check memory permissions */
-int memory_check_addr_perm(byte *addr, word *size, int write, byte *read_only);
+int memory_check_addr_perm(const byte *addr, word *size, int write, byte *read_only);
 
 /* check if a memory is executable */
-int memory_check_addr_exec(byte *addr);
+int memory_check_addr_exec(const byte *addr);
 
 /* map an outside memory to an inside memory */
-int memory_map(byte *addr, word *size, void **map, byte **new_addr, int write);
+int memory_map(const byte *addr, word *size, void **map, byte **new_addr, int write);
 
 /* unmap an outside memory */
 void memory_unmap(byte *addr);

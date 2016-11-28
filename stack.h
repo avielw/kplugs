@@ -11,25 +11,25 @@ typedef struct {
 	byte *tos;				/* points to the top of the stack */
 	byte *buf;				/* points to the bottom of the stack */
 	byte *extra;			/* points to a cached page that will be used in the next stack extension */
-} stack_t;
+} kpstack_t;
 
 
 /* create a new stack */
-int stack_alloc(stack_t *stack, word elem_size, word elem_perpage);
+int stack_alloc(kpstack_t *stack, word elem_size, word elem_perpage);
 
 /* delete a stack */
-void stack_free(stack_t *stack);
+void stack_free(kpstack_t *stack);
 
 /* push an element to the stack */
-void *stack_push(stack_t *stack, void *elem);
+void *stack_push(kpstack_t *stack, void *elem);
 
 /* pop one element from the stack */
-int stack_pop(stack_t *stack, void *elem);
+int stack_pop(kpstack_t *stack, void *elem);
 
 /* return one element from the stack without taking it out */
-void *stack_peek(stack_t *stack);
+void *stack_peek(kpstack_t *stack);
 
 /* check if the stack is empty */
-int stack_is_empty(stack_t * stack);
+int stack_is_empty(kpstack_t * stack);
 
 #endif

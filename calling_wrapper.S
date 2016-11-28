@@ -22,11 +22,16 @@
 #define SP          %esp
 #define CODETYPE    .code32
 
+#elif defined(CONFIG_ARM)
+
+#define WORD	.long
+
 #else
 
 #error "Unknown arch!"
 
 #endif
+
 
 .data
 	/* a spin lock */
@@ -36,7 +41,6 @@
 
 
 .text
-
 	.global wrapper_start
 	.global wrapper_end
 
@@ -44,6 +48,8 @@
 	.global wrapper_curfunc
 
 	.global wrapper_unlock
+
+#if defined(CONFIG_X86_32) || defined(CONFIG_X86_64)
 
 	CODETYPE
 
@@ -104,7 +110,55 @@
 		mov (SP), AX
 		ret
 
+#elif defined(CONFIG_ARM)
 
+	wrapper_unlock:
+		push {r0,r1,lr}
+		bl get_location
+	_unlk_location:
+		mov r1, #0
+		ldr r0, [r0, #(_wrp_lock_ptr - _unlk_location)]
+		str r1, [r0]
+		pop {r0,r1,pc}
+
+	wrapper_start:
+		push {r0}
+		push {r0-r3,lr}
+
+		bl get_location
+	_wrp_location:
+		ldr r1, [r0, #(_wrp_lock_ptr - _wrp_location)]
+
+		mov r3, #1
+	_wrp_again:
+#if __LINUX_ARM_ARCH__ > 5
+		ldrex r2, [r1]
+		teq r2, #0
+		strexeq r2, r3, [r1]
+		teqeq r2, #0
+#else
+		swp r2, r3, [r1]
+		cmp r2, #0
+#endif
+		bne _wrp_again
+
+		ldr r1, [r0, #(_wrp_curfunc_ptr - _wrp_location)]
+		ldr r2, [r0, #(wrapper_start - _wrp_location)]
+		str r2, [r1]
+
+		ldr r1, [r0, #(wrapper_callback - _wrp_location)]
+
+		str r1, [sp, #0x14]
+		
+		pop {r0-r3,lr,pc}
+
+	get_location:
+		mov r0, lr
+		mov pc, lr
+
+
+
+#endif
 	_wrp_lock_ptr:		WORD	_wrp_lock
 	_wrp_curfunc_ptr:	WORD	wrapper_curfunc
 	wrapper_callback:	WORD	0

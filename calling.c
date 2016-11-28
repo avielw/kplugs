@@ -31,7 +31,7 @@ word standard_function_callback(STANDARD_FUNC_VARIABLES)
 	word ret = 0;
 	word iter = 0;
 	int err;
-	stack_t arg_stack;
+	kpstack_t arg_stack;
 	exception_t excep;
 
 	/* the wrapper has waited for us to get the function struct. now we can unlock it */
@@ -84,7 +84,7 @@ word variable_argument_function_callback(word first_var, ...)
 	word iter = 0;
 	int err;
 	va_list ap;
-	stack_t arg_stack;
+	kpstack_t arg_stack;
 	exception_t excep;
 
 	/* the wrapper has waited for us to get the function struct. now we can unlock it */
@@ -136,7 +136,7 @@ clean:
 
 
 /* call an external function (not a vm function) */
-word call_external_function(void *external_function, stack_t *arg_stack, word flags)
+word call_external_function(void *external_function, kpstack_t *arg_stack, word flags)
 {
 	standard_function_t *s_function = external_function;
 	variable_argument_function_t *va_function = external_function;

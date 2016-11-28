@@ -30,6 +30,6 @@ typedef struct {
 } vm_state_t;
 
 /* execute a function on the vm */
-word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep);
+word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep);
 
 #endif

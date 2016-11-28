@@ -162,7 +162,7 @@ static void load_state(function_t *func, vm_state_t *state, word pc, word num_ar
 }
 
 /* push a state in the state stack */
-static vm_state_t *push_state(function_t *func, stack_t *stack, word pc, word num_args)
+static vm_state_t *push_state(function_t *func, kpstack_t *stack, word pc, word num_args)
 {
 	vm_state_t state;
 
@@ -171,7 +171,7 @@ static vm_state_t *push_state(function_t *func, stack_t *stack, word pc, word nu
 }
 
 /* initialize the arguments and local variables buffer */
-static int vm_init_local_variable(vm_state_t *state, stack_t *arg_stack, word *vars, arg_cache_t *cache)
+static int vm_init_local_variable(vm_state_t *state, kpstack_t *arg_stack, word *vars, arg_cache_t *cache)
 {
 	word iter = state->func->num_maxargs;
 	word iter2 = 0;
@@ -250,7 +250,7 @@ static int vm_init_local_variable(vm_state_t *state, stack_t *arg_stack, word *v
 extern context_t *GLOBAL_CONTEXT;
 
 /* execute a function on the vm */
-word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
+word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 {
 	word pc;
 	sword stage;
@@ -260,7 +260,7 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 
 	vm_state_t *state;
 	vm_state_t *new_state;
-	stack_t stack;
+	kpstack_t stack;
 
 	function_t *calling_function = NULL;
 	void *external_function = NULL;
@@ -662,12 +662,17 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 					ret = state->val - ret;
 					VM_LEAVE_BLOCK();
 				}
-			case EXP_MUL:
+			case EXP_MUL_UNSIGN:
 				if (stage == 2) {
 					ret = state->val * ret;
 					VM_LEAVE_BLOCK();
 				}
-			case EXP_DIV:
+			case EXP_MUL_SIGN:
+				if (stage == 2) {
+					ret = (word)((sword)state->val * (sword)ret);
+					VM_LEAVE_BLOCK();
+				}
+			case EXP_DIV_UNSIGN:
 				if (stage == 2) {
 					if (ret == 0) {
 						VM_THROW_EXCEPTION(ERROR_DIV);
@@ -676,19 +681,28 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 
 					VM_LEAVE_BLOCK();
 				}
+			case EXP_DIV_SIGN:
+				if (stage == 2) {
+					if (ret == 0) {
+						VM_THROW_EXCEPTION(ERROR_DIV);
+					}
+					ret = (word)((sword)state->val / (sword)ret);
+
+					VM_LEAVE_BLOCK();
+				}
 			case EXP_AND:
 				if (stage == 2) {
 					ret = state->val & ret;
 					VM_LEAVE_BLOCK();
 				}
-			case EXP_OR:
-				if (stage == 2) {
-					ret = state->val | ret;
-					VM_LEAVE_BLOCK();
-				}
 			case EXP_XOR:
 				if (stage == 2) {
 					ret = state->val ^ ret;
+					VM_LEAVE_BLOCK();
+				}
+			case EXP_OR:
+				if (stage == 2) {
+					ret = state->val | ret;
 					VM_LEAVE_BLOCK();
 				}
 			case EXP_BOOL_AND:
@@ -733,6 +747,13 @@ word vm_run_function(function_t *func, stack_t *arg_stack, exception_t *excep)
 				if (stage == 1) {
 					ret = !ret;
 					VM_LEAVE_BLOCK();
+				}
+			case EXP_EXT_SIGN:
+				if (stage == 1) {
+					if (ret > 0xff) {
+						VM_THROW_EXCEPTION(ERROR_PARAM);
+					}
+					ret = (word)((sword)(char)ret);
 				}
 				if (stage == 0) {
 					VM_ENTER_BLOCK(val1);

@@ -82,7 +82,7 @@ void *context_find_anonymous(context_t *cont, byte *ptr);
 int context_get_last_exception(context_t *cont, exception_t *excep);
 
 /* copy the reply back to the user */
-int context_get_reply(context_t *cont, char *buf, word length);
+int context_get_reply(context_t *cont, void *buf, word length);
 
 /* create a reply */
 void context_create_reply(context_t *cont, word val, exception_t *excep);

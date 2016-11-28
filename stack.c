@@ -2,7 +2,7 @@
 #include "env.h"
 
 /* create a new stack */
-int stack_alloc(stack_t *stack, word elem_size, word elem_perpage)
+int stack_alloc(kpstack_t *stack, word elem_size, word elem_perpage)
 {
 	if (!elem_size || !elem_perpage) {
 		ERROR(-ERROR_PARAM);
@@ -35,7 +35,7 @@ int stack_alloc(stack_t *stack, word elem_size, word elem_perpage)
 }
 
 /* delete a stack */
-void stack_free(stack_t *stack)
+void stack_free(kpstack_t *stack)
 {
 	void *next = stack->tos;
 
@@ -61,7 +61,7 @@ void stack_free(stack_t *stack)
 }
 
 /* push an element to the stack */
-void *stack_push(stack_t *stack, void *elem)
+void *stack_push(kpstack_t *stack, void *elem)
 {
 	void *ret = NULL;
 	if (stack->offset_inpage == stack->elem_perpage) {
@@ -98,13 +98,13 @@ void *stack_push(stack_t *stack, void *elem)
 }
 
 /* check if the stack is empty */
-int stack_is_empty(stack_t * stack)
+int stack_is_empty(kpstack_t * stack)
 {
 	return stack->tos == stack->buf + sizeof(byte **);
 }
 
 /* pop one element from the stack */
-int stack_pop(stack_t *stack, void *elem)
+int stack_pop(kpstack_t *stack, void *elem)
 {
 	if (stack_is_empty(stack)) {
 		return -ERROR_SEMPTY; /* most of the times it's not really an error */
@@ -134,7 +134,7 @@ int stack_pop(stack_t *stack, void *elem)
 }
 
 /* return one element from the stack without taking it out */
-void *stack_peek(stack_t *stack)
+void *stack_peek(kpstack_t *stack)
 {
 	byte *tos = stack->tos;
 
