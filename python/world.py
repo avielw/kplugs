@@ -38,13 +38,14 @@ class PlugWorld(object):
             self.form = "Q"
         else:
             raise Exception("Unsupported word size")
+        self.mask = (2**(self.word_size*8)) - 1
 
     def pack(self, form, *kargs):
         if self.little_endian:
             form = "<" + form
         else:
             form = ">" + form
-        return struct.pack(form, *kargs)
+        return struct.pack(form, *map(lambda i:self.mask & i, kargs))
 
     def unpack(self, form, string):
         if self.little_endian:
