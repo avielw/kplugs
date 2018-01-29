@@ -561,11 +561,13 @@ static int function_check_flow(	bytecode_t *code,
 					ERROR(-ERROR_VAR);
 				}
 
-				if (val2 || val3) {
-					ERROR(-ERROR_PARAM);
-				}
+				DEBUG_PRINT("send(%s%lu", variable_names[code[val1].var.type], val1);
 
-				DEBUG_PRINT("send(%s%lu)", variable_names[code[val1].var.type], val1);
+				if (val2) {
+					DEBUG_PRINT(", [const%lu]", val2);
+					*max_string = MAX(*max_string, val2);
+				}
+				DEBUG_PRINT(")\n");
 
 				break;
 

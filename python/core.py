@@ -8,7 +8,7 @@ import ctypes
 import os
 
 WORD_SIZE = struct.calcsize("P")
-VERSION   = (2, 0)
+VERSION   = (2, 1)
 
 # the kplugs main class
 class Plug(object):
@@ -1194,6 +1194,8 @@ def fstring_function(%s):
 
 			elif type(node.func) == Name and node.func.id in ["send", "recv"]:
 				if node.func.id == "send":
+					if len(node.args) > 2:
+						raise Exception("Bad syntax of send")
 					try:
 						var = self.func._get_var_id(node.args[0].id)
 					except:
@@ -1201,7 +1203,12 @@ def fstring_function(%s):
 					if var["type"] == Function.VAR_WORD:
 						raise Exception("Wrong variable type")
 
-					self._create_flow(Function.FLOW_SEND_DATA, var["id"])
+					arg2 = 0
+					if len(node.args) > 1:
+						if type(node.args[1]) != Str:
+							raise Exception("Second parameter must be a string")
+						arg2 = self.func._get_string_value(node.args[1].s)
+					self._create_flow(Function.FLOW_SEND_DATA, var["id"], arg2)
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
 				else:
 					is_global = 0
@@ -1210,7 +1217,7 @@ def fstring_function(%s):
 							raise Exception("Bad syntax of new")
 						is_global = node.args[1].n
 					elif len(node.args) != 1:
-						raise Exception("Bad syntax of new")
+						raise Exception("Bad syntax of recv")
 					try:
 						var = self.func._get_var_id(node.args[0].id)
 						if var["type"] != Function.VAR_POINTER:

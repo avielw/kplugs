@@ -480,32 +480,58 @@ word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 			break;
 
 			case FLOW_SEND_DATA:
-				if (	state->func->code[val1].var.type == VAR_WORD || 
+				if (val2) {
+					calling_function = context_find_function(state->func->cont, state->func->raw + state->func->string_table[val2 - 1]);
+					if (NULL == calling_function) {
+						if (NULL != GLOBAL_CONTEXT && state->func->cont != GLOBAL_CONTEXT) {
+							calling_function = context_find_function(GLOBAL_CONTEXT, state->func->raw + state->func->string_table[val2 - 1]);
+						}
+						if (NULL == calling_function) {
+							VM_THROW_EXCEPTION(ERROR_UFUNC);
+						}
+					}
+				}
+
+				dyn = NULL;
+				if (	state->func->code[val1].var.type == VAR_WORD ||
 						state->func->code[val1].var.type == VAR_POINTER) {
 					dyn = get_dyn_mem(&dyn_head, (void *)vars[val1 - 1]);
 					if (NULL == dyn) {
-						VM_THROW_EXCEPTION(ERROR_NODYM);
+						err = -ERROR_NODYM;
+						goto send_data_except;
 					}
 				} else {
 					temp_value = state->func->code[val1].var.size;
 					ret = (word)memory_alloc_dyn(&dyn_head, temp_value);
 					if ((word)NULL == ret) {
-						VM_THROW_EXCEPTION(ERROR_MEM);
+						err = -ERROR_MEM;
+						goto send_data_except;
 					}
 					dyn = get_dyn_mem(&dyn_head, (void *)ret);
 					if (NULL == dyn) {
-						memory_free_dyn(&dyn_head, (void *)ret);
-						VM_THROW_EXCEPTION(ERROR_NODYM);
+						err = -ERROR_NODYM;
+						goto send_data_except;
 					}
 					err = cache_memory_copy((byte *)vars[val1 - 1], (byte *)ret, 0, temp_value, temp_value, &cache[val1 - 1], 0);
 					if (err < 0) {
-						memory_free_dyn(&dyn_head, (void *)ret);
-						VM_THROW_EXCEPTION(-err);
+						goto send_data_except;
 					}
 				}
-				if ((err = send_data_to_other(&func->to_user, dyn))) {
+				if ((err = send_data_to_other(val2 ? &calling_function->to_kernel :  &func->to_user, dyn))) {
 					/* send_data_to_other delete the dyn */
+					dyn = NULL;
+send_data_except:
+					if (NULL != dyn) {
+						memory_free_dyn(&dyn_head, (void *)ret);
+					}
+					if (val2) {
+						function_put(calling_function);
+					}
 					VM_THROW_EXCEPTION(-err);
+				}
+
+				if (val2) {
+					function_put(calling_function);
 				}
 				VM_STEP();
 
