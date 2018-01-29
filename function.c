@@ -4,6 +4,7 @@
 #include "env.h"
 #include "stack.h"
 #include "calling.h"
+#include "queue.h"
 
 #ifdef DEBUG
 
@@ -361,6 +362,19 @@ static int function_check_expression(	bytecode_t *code,
 
 			return found;
 
+		case EXP_RECV_DATA:
+			if (val1 >= numvars) {
+				ERROR(-ERROR_VAR);
+			}
+
+			if (code[val1].var.type != VAR_POINTER || val2 > 1) {
+				ERROR(-ERROR_PARAM);
+			}
+
+			DEBUG_PRINT("recv(%s%lu)", variable_names[code[val1].var.type], val1);
+
+			return found;
+
 		case EXP_ARGS:
 			if (val1 || val2) {
 				ERROR(-ERROR_PARAM);
@@ -530,7 +544,7 @@ static int function_check_flow(	bytecode_t *code,
 
 
 			case FLOW_DYN_FREE:
-				if (val2) {
+				if (val2 || val3) {
 					ERROR(-ERROR_PARAM);
 				}
 
@@ -539,6 +553,19 @@ static int function_check_flow(	bytecode_t *code,
 				CHECK_EXPRESSION(val1);
 
 				DEBUG_PRINT(")\n");
+
+				break;
+
+			case FLOW_SEND_DATA:
+				if (val1 >= numvars) {
+					ERROR(-ERROR_VAR);
+				}
+
+				if (val2 || val3) {
+					ERROR(-ERROR_PARAM);
+				}
+
+				DEBUG_PRINT("send(%s%lu)", variable_names[code[val1].var.type], val1);
 
 				break;
 
@@ -877,6 +904,9 @@ int function_create(bytecode_t *code, word len, function_t **func)
 
 	memory_set(*func, 0, sizeof(function_t));
 	atomic_set(&(*func)->ref_count, 1);
+
+	init_queue(&(*func)->to_user, &dyn_free_callback);
+	init_queue(&(*func)->to_kernel, &dyn_free_callback);
 
 	err = function_check(code, len, *func);
 	if (err < 0) {

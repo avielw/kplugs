@@ -8,7 +8,7 @@ import ctypes
 import os
 
 WORD_SIZE = struct.calcsize("P")
-VERSION   = (1, 1)
+VERSION   = (2, 0)
 
 # the kplugs main class
 class Plug(object):
@@ -21,6 +21,10 @@ class Plug(object):
 	KPLUGS_UNLOAD = 4
 	KPLUGS_UNLOAD_ANONYMOUS = 5
 	KPLUGS_GET_LAST_EXCEPTION = 6
+	KPLUGS_SEND_DATA = 7
+	KPLUGS_SEND_DATA_ANONYMOUS = 8
+	KPLUGS_RECV_DATA = 9
+	KPLUGS_RECV_DATA_ANONYMOUS = 10
 
 	ERROR_TABLE = [
 	"",
@@ -43,6 +47,7 @@ class Plug(object):
 	"Wrong architecture",
 	"Unsupported version",
 	"Not a dynamic memory",
+	"Operation was interrupted",
 	]
 
 	
@@ -143,6 +148,60 @@ class Plug(object):
 				self.world.free(name_buf)
 
 
+	def send(self, func, data):
+		if func.anonymous:
+			op = Plug.KPLUGS_SEND_DATA_ANONYMOUS
+			length = 0
+			ptr = func.addr
+			name_buf = 0
+		else:
+			op = Plug.KPLUGS_SEND_DATA
+			length = len(func.name)
+			name_buf = self.world.alloc(len(func.name))
+			self.world.mem_write(name_buf, func.name)
+			ptr = name_buf
+
+		if self.glob:
+			op |= (1 << 7) # add the global flag
+
+		try:
+			addr = self.world.alloc(len(data))
+			try:
+				self.world.mem_write(addr, data)
+				return self._exec_cmd(op, length, len(data), ptr, addr)
+			finally:
+				self.world.free(addr)
+		finally:
+			if name_buf:
+				self.world.free(name_buf)
+
+	def recv(self, func, buf_length):
+		if func.anonymous:
+			op = Plug.KPLUGS_RECV_DATA_ANONYMOUS
+			length = 0
+			ptr = func.addr
+			name_buf = 0
+		else:
+			op = Plug.KPLUGS_RECV_DATA
+			length = len(func.name)
+			name_buf = self.world.alloc(len(func.name))
+			self.world.mem_write(name_buf, func.name)
+			ptr = name_buf
+
+		if self.glob:
+			op |= (1 << 7) # add the global flag
+
+		try:
+			addr = self.world.alloc(buf_length)
+			try:
+				real_length = self._exec_cmd(op, length, buf_length, ptr, addr)
+				return self.world.mem_read(addr, min(buf_length, real_length))
+			finally:
+				self.world.free(addr)
+		finally:
+			if name_buf:
+				self.world.free(name_buf)
+
 	def __call__(self, func, *args):
 		if not func in self.funcs:
 			raise Exception("This function doesn't belongs to this plug")
@@ -198,7 +257,7 @@ class Plug(object):
 
 
 RESERVED_PREFIX =	["KERNEL"]
-RESERVED_NAMES = 	["VARIABLE_ARGUMENT", "ANONYMOUS", "STATIC", "ADDRESSOF", "word", "buffer", "array", "pointer", "new", "delete"]
+RESERVED_NAMES = 	["VARIABLE_ARGUMENT", "ANONYMOUS", "STATIC", "ADDRESSOF", "word", "buffer", "array", "pointer", "new", "delete", "recv", "send"]
 RESERVED_FUNCTIONS = 	["_"]
 
 # validate name
@@ -233,10 +292,11 @@ class Function(object):
 	FLOW_TRY = 3
 	FLOW_WHILE = 4
 	FLOW_DYN_FREE = 5
+	FLOW_SEND_DATA = 6
 
-	FLOW_BLOCKEND = 6
-	FLOW_THROW = 7
-	FLOW_RET = 8
+	FLOW_BLOCKEND = 7
+	FLOW_THROW = 8
+	FLOW_RET = 9
 
 	# Expressions:
 	EXP_WORD = 0
@@ -270,8 +330,9 @@ class Function(object):
 	EXP_CMP_SIGN = 26
 	EXP_EXT_SIGN = 27
 	EXP_DYN_ALLOC = 28
-	EXP_ARGS = 29
-	EXP_EXP = 30
+	EXP_RECV_DATA = 29
+	EXP_ARGS = 30
+	EXP_EXP = 31
 
 	FUNC_VARIABLE_ARGUMENT = 1
 	FUNC_EXTERNAL = 2
@@ -515,6 +576,12 @@ class Function(object):
 
 	def unload(self):
 		self.plug.unload(self)
+
+	def send(self, data):
+		return self.plug.send(self, data)
+
+	def recv(self, length):
+		return self.plug.recv(self, length)
 
 	def __call__(self, *args):
 		return self.plug(self, *args)
@@ -1124,6 +1191,34 @@ def fstring_function(%s):
 				else:
 					self._create_flow(Function.FLOW_DYN_FREE, self.visit(node.args[0]))
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
+
+			elif type(node.func) == Name and node.func.id in ["send", "recv"]:
+				if node.func.id == "send":
+					try:
+						var = self.func._get_var_id(node.args[0].id)
+					except:
+						raise Exception("Cannot find variable: '%s'" % (node.args[0].id, ))
+					if var["type"] == Function.VAR_WORD:
+						raise Exception("Wrong variable type")
+
+					self._create_flow(Function.FLOW_SEND_DATA, var["id"])
+					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
+				else:
+					is_global = 0
+					if len(node.args) == 2:
+						if type(node.args[1]) != Num or (node.args[1].n != 0 and node.args[1].n != 1):
+							raise Exception("Bad syntax of new")
+						is_global = node.args[1].n
+					elif len(node.args) != 1:
+						raise Exception("Bad syntax of new")
+					try:
+						var = self.func._get_var_id(node.args[0].id)
+						if var["type"] != Function.VAR_POINTER:
+							raise
+					except:
+						raise Exception("Can receive only pointers")
+
+					return self.func._get_exp(Function.EXP_RECV_DATA, var["id"], is_global)
 
 			if name.startswith("KERNEL_"):
 				# this is the macro for using external functions

@@ -1,4 +1,4 @@
-OBJECTS := cache.o calling.o calling_wrapper.o context.o env.o function.o kplugs.o memory.o stack.o vm.o
+OBJECTS := cache.o calling.o calling_wrapper.o context.o env.o function.o kplugs.o memory.o queue.o stack.o vm.o
 
 kplugs_release-objs = $(OBJECTS)
 MAKECMD  := make -C "/lib/modules/`uname -r`/build" SUBDIRS=$(PWD)

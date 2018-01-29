@@ -16,6 +16,10 @@ typedef enum {
 	KPLUGS_UNLOAD,
 	KPLUGS_UNLOAD_ANONYMOUS,
 	KPLUGS_GET_LAST_EXCEPTION,
+	KPLUGS_SEND_DATA,
+	KPLUGS_SEND_DATA_ANONYMOUS,
+	KPLUGS_RECV_DATA,
+	KPLUGS_RECV_DATA_ANONYMOUS,
 } kplugs_command_types_t;
 
 
@@ -68,10 +72,10 @@ int context_create(context_t **cont);
 void context_free(context_t *cont);
 
 /* lock a context */
-void context_lock(context_t *cont);
+unsigned long context_lock(context_t *cont);
 
 /* unlock a context */
-void context_unlock(context_t *cont);
+void context_unlock(context_t *cont, unsigned long flags);
 
 /* find a function by name */
 void *context_find_function(context_t *cont, byte *name);

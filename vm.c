@@ -479,6 +479,38 @@ word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 
 			break;
 
+			case FLOW_SEND_DATA:
+				if (	state->func->code[val1].var.type == VAR_WORD || 
+						state->func->code[val1].var.type == VAR_POINTER) {
+					dyn = get_dyn_mem(&dyn_head, (void *)vars[val1 - 1]);
+					if (NULL == dyn) {
+						VM_THROW_EXCEPTION(ERROR_NODYM);
+					}
+				} else {
+					temp_value = state->func->code[val1].var.size;
+					ret = (word)memory_alloc_dyn(&dyn_head, temp_value);
+					if ((word)NULL == ret) {
+						VM_THROW_EXCEPTION(ERROR_MEM);
+					}
+					dyn = get_dyn_mem(&dyn_head, (void *)ret);
+					if (NULL == dyn) {
+						memory_free_dyn(&dyn_head, (void *)ret);
+						VM_THROW_EXCEPTION(ERROR_NODYM);
+					}
+					err = cache_memory_copy((byte *)vars[val1 - 1], (byte *)ret, 0, temp_value, temp_value, &cache[val1 - 1], 0);
+					if (err < 0) {
+						memory_free_dyn(&dyn_head, (void *)ret);
+						VM_THROW_EXCEPTION(-err);
+					}
+				}
+				if ((err = send_data_to_other(&func->to_user, dyn))) {
+					/* send_data_to_other delete the dyn */
+					VM_THROW_EXCEPTION(-err);
+				}
+				VM_STEP();
+
+			break;
+
 			case FLOW_BLOCKEND:
 				VM_LEAVE_BLOCK();
 
@@ -918,6 +950,18 @@ word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 
 					VM_LEAVE_BLOCK();
 				}
+			break;
+
+			case EXP_RECV_DATA:
+				ret = recv_data_from_other(&func->to_kernel, val2 ? NULL : &dyn_head, &dyn);
+				if (ret) {
+					VM_THROW_EXCEPTION(-ret);
+				} else {
+					ret = dyn->size;
+					vars[val1 - 1] = (word)&dyn->data;
+					VM_LEAVE_BLOCK();
+				}
+			break;
 
 			case EXP_ARGS:
 				ret = state->args;

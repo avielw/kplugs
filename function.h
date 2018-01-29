@@ -5,6 +5,7 @@
 #include "config.h"
 #include "types.h"
 #include "context.h"
+#include "queue.h"
 
 
 /* operator types */
@@ -64,6 +65,7 @@ typedef enum {
 	EXP_EXT_SIGN,
 
 	EXP_DYN_ALLOC, /* allocate a dynamic buffer */
+	EXP_RECV_DATA,
 
 	EXP_ARGS, /* the number of arguments that was received */
 	EXP_EXP, /* poitner to an expression. used in case of a function call in a function argument */
@@ -80,6 +82,7 @@ typedef enum {
 	FLOW_TRY,
 	FLOW_WHILE,
 	FLOW_DYN_FREE, /* free a dynamic buffer */
+	FLOW_SEND_DATA,
 
 	/* block terminators */
 	FLOW_BLOCKEND,
@@ -173,6 +176,8 @@ typedef struct function_st {
 	word num_maxargs;	/* maximum number of arguments number */
 	word num_vars;		/* variables number */
 	word num_opcodes;	/* number of opcodes */
+	struct queue_head to_user;
+	struct queue_head to_kernel;
 
 	word total_args_size;	/* the size of memory needed to store the arguments */
 	word total_vars_size;	/* the size of memory needed to store the all the variables (including the arguments) */

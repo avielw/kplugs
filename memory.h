@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+struct queue_head;
+
 /* memory types */
 typedef enum {
 	ADDR_UNDEF,
@@ -23,6 +25,7 @@ typedef struct heap_s {
 
 typedef struct dyn_mem_s {
 	struct dyn_mem_s *next;
+	struct dyn_mem_s *head;
 	word size;
 
 	byte data[1];
@@ -53,6 +56,15 @@ void *memory_alloc_dyn(dyn_mem_t *head, word size);
 int memory_free_dyn(dyn_mem_t *head, void *ptr);
 /* checks if a pointer is a dynamic memory */
 dyn_mem_t *get_dyn_mem(dyn_mem_t *head, void *ptr);
+/* transfer a dynamic memory from one head to another */
+int transfer_dyn_mem(dyn_mem_t *head, dyn_mem_t *dyn);
+
+/* callback for the queue struct */
+void dyn_free_callback(void *data);
+/* get a buffer from user */
+int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **dyn);
+/* send a buffer to user */
+int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn);
 
 /* check memory permissions */
 int memory_check_addr_perm(const byte *addr, word *size, int write, byte *read_only);

@@ -3,8 +3,8 @@
 #ifndef CONFIG
 #define CONFIG
 
-#define VERSION_MAJOR		(1)
-#define VERSION_MINOR		(1)
+#define VERSION_MAJOR		(2)
+#define VERSION_MINOR		(0)
 
 #define MAX_RECUR			(20)
 #define MAX_CALL_RECUR		(30)
@@ -15,6 +15,10 @@
 #define MAX_STACK_FRAME (0x200)
 
 #define STACK_MAX_PARAMETERS (15)
+
+#define MAX_QUEUE_SIZE (0x200)
+
+#define MAX_BUSY_WAIT  (50)
 
 #ifdef DEBUG
 

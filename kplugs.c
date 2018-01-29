@@ -85,6 +85,7 @@ static ssize_t kplugs_read(struct file *filp, char __user *buf, size_t count, lo
 static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	kplugs_command_t cmd;
+	dyn_mem_t dyn_head, *dyn;
 	context_t *file_cont = NULL;
 	context_t *cont = NULL;
 	bytecode_t *code = NULL;
@@ -95,6 +96,7 @@ static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t co
 	word args;
 	byte little_endian;
 	byte func_name[MAX_FUNC_NAME + 1];
+	void *data;
 	int err = 0;
 
 #ifdef __LITTLE_ENDIAN
@@ -171,7 +173,13 @@ static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t co
 		}
 	case KPLUGS_EXECUTE:
 		/* execute (and unload) a function with a name */
-		if (cmd.len1 > MAX_FUNC_NAME || (cmd.len2 % sizeof(word)) != 0) {
+		if ((cmd.len2 % sizeof(word)) != 0) {
+			return create_error(file_cont, -ERROR_PARAM);
+		}
+
+	case KPLUGS_SEND_DATA:
+	case KPLUGS_RECV_DATA:
+		if (cmd.len1 > MAX_FUNC_NAME) {
 			return create_error(file_cont, -ERROR_PARAM);
 		}
 
@@ -184,29 +192,32 @@ static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t co
 
 		/* find the function */
 
-		if (cmd.type == KPLUGS_UNLOAD) {
-			func = context_find_function(cont, func_name);
-			if (NULL == func) {
-				return create_error(file_cont, -ERROR_UFUNC);
+		if (cmd.type == KPLUGS_EXECUTE) {
+			if (!cmd.is_global) {
+				func = context_find_function(file_cont, func_name);
 			}
-			/* delete the function */
-			context_free_function(func);
-			err = (int)count;
-
-			goto clean;
+			if (NULL == func) {
+				func = context_find_function(GLOBAL_CONTEXT, func_name);
+				if (NULL == func) {
+					return create_error(file_cont, -ERROR_UFUNC);
+				}
+			}
+			goto execute_func;
 		}
 
-		if (!cmd.is_global) {
-			func = context_find_function(file_cont, func_name);
-		}
+		func = context_find_function(cont, func_name);
 		if (NULL == func) {
-			func = context_find_function(GLOBAL_CONTEXT, func_name);
-			if (NULL == func) {
-				return create_error(file_cont, -ERROR_UFUNC);
-			}
+			return create_error(file_cont, -ERROR_UFUNC);
 		}
 
-		goto execute_func;
+		if (cmd.type == KPLUGS_UNLOAD) {
+			goto delete_func;
+		} else if (cmd.type == KPLUGS_SEND_DATA) {
+			goto send_func;
+		} else { /* KPLUGS_RECV_DATA */
+			goto recv_func;
+		}
+
 
 	case KPLUGS_UNLOAD_ANONYMOUS:
 		/* unload an anonymous function */
@@ -218,6 +229,7 @@ static ssize_t kplugs_write(struct file *filp, const char __user *buf, size_t co
 			return create_error(file_cont, -ERROR_UFUNC);
 		}
 
+delete_func:
 		/* delete the function */
 		context_free_function(func);
 
@@ -298,6 +310,89 @@ execute_func:
 		}
 
 		return count;
+
+	case KPLUGS_SEND_DATA_ANONYMOUS:
+		/* send to an anonymous function */
+
+		if (!cmd.is_global) {
+			func = context_find_anonymous(file_cont, cmd.ptr1);
+		}
+		if (NULL == func) {
+			func = context_find_anonymous(GLOBAL_CONTEXT, cmd.ptr1);
+			if (NULL == func) {
+				return create_error(file_cont, -ERROR_UFUNC);
+			}
+		}
+
+send_func:
+		memory_dyn_init(&dyn_head);
+
+		data = memory_alloc_dyn(&dyn_head, cmd.len2);
+		if (NULL == data) {
+			memory_dyn_clean(&dyn_head);
+			err = create_error(file_cont, -ERROR_MEM);
+			goto clean;
+		}
+
+		dyn = get_dyn_mem(&dyn_head, data);
+		if (NULL == dyn) {
+			/* we should not be here */
+			memory_dyn_clean(&dyn_head);
+			err = create_error(file_cont, -ERROR_NODYM);
+			goto clean;
+		}
+
+		err = memory_copy_from_outside(data, cmd.uptr2, cmd.len2);
+		if (err < 0) {
+			memory_dyn_clean(&dyn_head);
+			err = create_error(file_cont, err);
+			goto clean;
+		}
+
+		err = send_data_to_other(&func->to_kernel, dyn);
+		memory_dyn_clean(&dyn_head);
+		if (err < 0) {
+			err = create_error(file_cont, err);
+			goto clean;
+		}
+		err = count;
+
+		context_create_reply(file_cont, 0, NULL);
+		goto clean;
+
+	case KPLUGS_RECV_DATA_ANONYMOUS:
+		/* receive from an anonymous function */
+
+		if (!cmd.is_global) {
+			func = context_find_anonymous(file_cont, cmd.ptr1);
+		}
+		if (NULL == func) {
+			func = context_find_anonymous(GLOBAL_CONTEXT, cmd.ptr1);
+			if (NULL == func) {
+				return create_error(file_cont, -ERROR_UFUNC);
+			}
+		}
+
+recv_func:
+		memory_dyn_init(&dyn_head);
+
+		err = recv_data_from_other(&func->to_user, &dyn_head, &dyn);
+		if (err) {
+			err = create_error(file_cont, err);
+			goto clean;
+		}
+
+		err = memory_copy_to_outside(cmd.uptr2, &dyn->data, dyn->size < cmd.len2 ? dyn->size : cmd.len2);
+		if (err) {
+			err = create_error(file_cont, err);
+			goto clean;
+		} else {
+			err = count;
+			context_create_reply(file_cont, dyn->size, NULL);
+		}
+
+		memory_dyn_clean(&dyn_head);
+		goto clean;
 
 	default:
 		return create_error(file_cont, -ERROR_PARAM);
