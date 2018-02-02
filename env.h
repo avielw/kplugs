@@ -58,6 +58,10 @@ void *find_external_function(const byte *name);
 
 #define output_string(...) printk(__VA_ARGS__)
 
+#define KPLUGS_IOCTYPE (154)
+
+#define define_io(num, cont) _IOWR(KPLUGS_IOCTYPE, num, cont)
+
 #else
 
 #include <stdio.h>
@@ -82,6 +86,8 @@ typedef word wait_queue_head_t;
 #define init_waitqueue_head(wq)
 #define wait_event_interruptible(wq, cond) 0
 #define wake_up_interruptible(wq)
+
+#define define_io(num, cont) num
 
 #endif
 

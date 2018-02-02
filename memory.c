@@ -20,6 +20,36 @@ MODULE_LICENSE("GPL");
 
 static spinlock_t memory_lock;
 
+#ifdef HAS_LOOKUP_ADDRESS
+int memory_poke_kernel_address(const void *addr, word value)
+{
+    struct page *page;
+    void *page_addr;
+
+    if ((word)addr & (sizeof(word) - 1)) {
+		ERROR(-ERROR_POINT);
+    }
+
+    if (__module_address((unsigned long)addr) == NULL) {
+        page = virt_to_page(addr);
+    } else {
+        page = vmalloc_to_page(addr);
+    }
+    if (!page) {
+		ERROR(-ERROR_POINT);
+    }
+
+    page_addr = vmap(&page, 1, VM_MAP, PAGE_KERNEL);
+    if (!page_addr) {
+		ERROR(-ERROR_MEM);
+    }
+    *(word *)(page_addr + ((word)addr & (PAGE_SIZE - 1))) = value;
+    vunmap(page_addr);
+    return 0;
+}
+EXPORT_SYMBOL(memory_poke_kernel_address);
+#endif
+
 /* check the permissions of a address and return its type - */
 static int memory_check_addr_perm_task(const void *addr, word *size, int write, byte *read_only, byte *executable, struct task_struct *task)
 {

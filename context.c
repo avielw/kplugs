@@ -18,8 +18,6 @@ int context_create(context_t **cont)
 	(*cont)->funcs.prev = NULL;
 	(*cont)->anonym.next = NULL;
 	(*cont)->anonym.prev = NULL;
-	(*cont)->has_answer = 0;
-	(*cont)->last_exception.had_exception = 0;
 	spin_lock_init(&(*cont)->lock);
 
 	return 0;
@@ -180,63 +178,3 @@ clean:
 	return func;
 }
 
-/* copy the reply back to the user */
-int context_get_reply(context_t *cont, void *buf, word length)
-{
-	unsigned long flags;
-	word copy;
-
-	flags = context_lock(cont);
-
-	/* return an answer if there is one */
-	if (cont->has_answer) {
-		copy = (length > sizeof(kplugs_command_t)) ? sizeof(kplugs_command_t) : length;
-		memory_copy_to_outside(buf, &cont->cmd, copy);
-		cont->has_answer = 0;
-	} else {
-		copy = 0;
-	}
-
-	context_unlock(cont, flags);
-
-	return (int)copy;
-}
-
-/* copy the last exception to inside or outside memory */
-int context_get_last_exception(context_t *cont, exception_t *excep)
-{
-	unsigned long flags;
-	int err;
-
-	flags = context_lock(cont);
-
-	if (!cont->last_exception.had_exception) {
-		ERROR_CLEAN(-ERROR_PARAM);
-	}
-
-	err = safe_memory_copy(excep, &cont->last_exception, sizeof(exception_t), ADDR_UNDEF, ADDR_INSIDE, 0, 0);
-
-	cont->last_exception.had_exception = 0;
-
-clean:
-	context_unlock(cont, flags);
-	return err;
-}
-
-/* create a reply */
-void context_create_reply(context_t *cont, word val, exception_t *excep)
-{
-	unsigned long flags;
-	flags = context_lock(cont);
-
-	if (NULL != excep) {
-		memory_copy(&cont->last_exception, excep, sizeof(exception_t));
-	}
-
-	memory_set(&cont->cmd, 0, sizeof(kplugs_command_t));
-	cont->cmd.val1 = val;
-	cont->cmd.type = KPLUGS_REPLY;
-	cont->has_answer = 1;
-
-	context_unlock(cont, flags);
-}

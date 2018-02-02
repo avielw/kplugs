@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
@@ -14,6 +15,9 @@
 #define LISTEN_PORT	6565
 #define KPLUGS_DEV	"/dev/kplugs"
 
+#define KPLUGS_IOCTYPE (154)
+#define COMMAND_SIZE   (9 * sizeof(long))
+
 int to_exit = 0;
 
 
@@ -24,6 +28,7 @@ typedef enum {
 	READMEM,
 	WRITE,
 	READ,
+	IOCTL,
 } packettype_t;
 
 
@@ -52,6 +57,11 @@ typedef struct {
 typedef struct {
 	unsigned long size;
 } packet_read_t;
+
+typedef struct {
+    unsigned long cmd;
+    char ioctl_buf[COMMAND_SIZE];
+} packet_ioctl_t;
 
 
 int sendall(int sock, void *buf, unsigned long size)
@@ -97,10 +107,11 @@ void *handle_connection(void *param)
 	packet_writemem_t pwritemem;
 	packet_readmem_t preadmem;
 	packet_read_t pread;
+	packet_ioctl_t pioctl;
 
 	void *data = NULL;
 	unsigned long data_len = 0;
-	
+
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	little_endian = 1;
 #else
@@ -215,6 +226,18 @@ void *handle_connection(void *param)
 			memset(data, 0, pread.size + sizeof(unsigned long));
 			*(unsigned long *)data = (unsigned long)read(fd, data + sizeof(unsigned long), pread.size);
 			DO_REPLY(data, pread.size + sizeof(unsigned long));
+			break;
+
+		case IOCTL:
+			if (packet.size != sizeof(pioctl)) {
+				goto end;
+			}
+			if (recvall(sock, &pioctl, sizeof(pioctl))) {
+				goto end;
+			}
+
+			pioctl.cmd = (unsigned long)ioctl(fd, _IOWR(KPLUGS_IOCTYPE, (int)pioctl.cmd, pioctl.ioctl_buf), pioctl.ioctl_buf);
+			DO_REPLY(&pioctl, sizeof(pioctl));
 			break;
 
 		default:

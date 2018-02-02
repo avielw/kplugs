@@ -318,6 +318,7 @@ static int function_check_expression(	bytecode_t *code,
 		case EXP_MUL_SIGN:
 		case EXP_DIV_SIGN:
 		case EXP_AND:
+		case EXP_XOR:
 		case EXP_OR:
 		case EXP_BOOL_AND:
 		case EXP_BOOL_OR:

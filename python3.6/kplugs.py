@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from core import Plug, Function
+from .core import PlugCore, Function
 import threading
 import ctypes
 import struct
@@ -15,51 +15,80 @@ KPROBE_STRUCT_HANDLER = 8
 
 WORD_SIZE = struct.calcsize("P")
 
-class PlugsCache(object):
+KEEP_GLOBALS = False
+
+class Plug(PlugCore):
+	def __init__(self, *args, **kwargs):
+		global KPLUGS_OBJECTS
+
+		super(Plug, self).__init__(*args, **kwargs)
+		KPLUGS_OBJECTS.append(self)
+
+	def close(self, keep_globals=False):
+		global KPLUGS_OBJECTS
+
+		if KEEP_GLOBALS:
+			keep_globals = True
+
+		if KPLUGS_OBJECTS.count(self):
+			KPLUGS_OBJECTS.remove(self)
+
+		super(Plug, self).close(keep_globals)
+
+class ObjCache(object):
 	class OneCache(object):
-		def __init__(self, ip):
-			self.plug = Plug(ip = ip)
+		def __init__(self, ip, obj):
+			self.obj = obj(ip = ip)
 			self.count = 1
 
-	def __init__(self):
-		self._ip2plug = {}
-		self._plug2ip = {}
+	def __init__(self, obj):
+		self._ip2obj = {}
+		self._obj2ip = {}
 		self._lock = threading.Lock()
+		self._obj = obj
 
-	def new_plug(self, ip = None):
+	def new_obj(self, ip = None):
+		global KPLUGS_OBJECTS
+
 		self._lock.acquire()
 		try:
-			if self._ip2plug.has_key(ip):
-				self._ip2plug[ip].count += 1
-				return self._ip2plug[ip].plug;
+			if ip in self._ip2obj:
+				self._ip2obj[ip].count += 1
+				return self._ip2obj[ip].obj;
 			else:
-				plug = PlugsCache.OneCache(ip)
-				self._ip2plug[ip] = plug
-				self._plug2ip[plug.plug] = ip
-				return plug.plug
+				obj = ObjCache.OneCache(ip, self._obj)
+				if KPLUGS_OBJECTS.count(obj.obj):
+					KPLUGS_OBJECTS.remove(obj.obj)
+				self._ip2obj[ip] = obj
+				self._obj2ip[obj.obj] = ip
+				return obj.obj
 		finally:
 			self._lock.release()
 
-	def release(self, plug):
+	def release(self, obj):
 		self._lock.acquire()
 		try:
-			ip = self._plug2ip[plug]
-			self._ip2plug[ip].count -= 1
-			if self._ip2plug[ip].count == 0:
-				self._ip2plug.pop(ip)
-				self._plug2ip.pop(plug)
-				plug.close()
+			ip = self._obj2ip[obj]
+			self._ip2obj[ip].count -= 1
+			if self._ip2obj[ip].count == 0:
+				self._ip2obj.pop(ip)
+				self._obj2ip.pop(obj)
+				obj.close()
 		finally:
 			self._lock.release()
-
-kplugs_cache = PlugsCache()
 
 # unload kplugs - it's important unload the library or the computer may crash if you use hooks!
 def release_kplugs():
 	global KPLUGS_OBJECTS
+	global KEEP_GLOBALS
 
-	while len(KPLUGS_OBJECTS) != 0:
-		KPLUGS_OBJECTS[0].release()
+	KEEP_GLOBALS = True
+	try:
+		while len(KPLUGS_OBJECTS) != 0:
+			KPLUGS_OBJECTS[0].close()
+	finally:
+		KEEP_GLOBALS = False
+
 
 
 # a memory class
@@ -113,7 +142,7 @@ def safe_memcpy(dst, src, size, dpid, spid):
 
 		self._pid = default_pid
 		self._allocs = []
-		self._plug = kplugs_cache.new_plug(ip = ip)
+		self._plug = kplugs_cache["Plug"].new_obj(ip = ip)
 		self.word_size = self._plug.world.word_size
 		self._build_mem_funcs()
 
@@ -125,7 +154,7 @@ def safe_memcpy(dst, src, size, dpid, spid):
 
 		buf = self._plug.world.alloc(Mem.BLOCK_SIZE)
 		try:
-			if isinstance(n, int) or isinstance(n, long):
+			if isinstance(n, int) or isinstance(n, int):
 				start = n
 				stop = n + 1
 				pid = self._pid
@@ -140,11 +169,11 @@ def safe_memcpy(dst, src, size, dpid, spid):
 				if not pid:
 					pid = self._pid
 
-			ret = ""
+			ret = b""
 			l = Mem.BLOCK_SIZE
 
 			# copy the from memory block by block
-			for i in xrange(0, stop - start, Mem.BLOCK_SIZE):
+			for i in range(0, stop - start, Mem.BLOCK_SIZE):
 				if (stop - start - i) < l:
 					l = stop - start - i
 				err = self._safe_memcpy(buf, i + start, l, 0, pid)
@@ -159,17 +188,20 @@ def safe_memcpy(dst, src, size, dpid, spid):
 	def __setitem__(self, n, b):
 		assert self._valid, "The object was already released!"
 
-		if isinstance(b, int) or isinstance(b, long):
+		if isinstance(b, int) or isinstance(b, int):
 			b = self._plug.world.pack(self._plug.world.form, b)
 
-		if type(b) != str:
-			raise Exception("You can only set the memory to strings")
+		if type(b) is str:
+			b = b.encode()
+
+		if type(b) != bytes:
+			raise Exception("You can only set the memory to bytes")
 
 		buf = self._plug.world.alloc(len(b))
 		try:
 			self._plug.world.mem_write(buf, b)
 
-			if isinstance(n, int) or isinstance(n, long):
+			if isinstance(n, int) or isinstance(n, int):
 				start = n
 				stop = n + len(b)
 				pid = self._pid
@@ -193,7 +225,7 @@ def safe_memcpy(dst, src, size, dpid, spid):
 		finally:
 			self._plug.world.free(buf)
 
-	def release(self):
+	def close(self):
 		assert self._valid, "The object was already released!"
 		global KPLUGS_OBJECTS
 
@@ -204,7 +236,7 @@ def safe_memcpy(dst, src, size, dpid, spid):
 
 		if KPLUGS_OBJECTS.count(self):
 			KPLUGS_OBJECTS.remove(self)
-		kplugs_cache.release(self._plug)
+		kplugs_cache["Plug"].release(self._plug)
 
 
 class Caller(object):
@@ -222,7 +254,7 @@ def caller(name, variable_argument, length, %s):
 		raise ERROR_NAME
 ''' % (', '.join(['arg%d' % i for i in range(10)]), )
 		first = ''
-		for i in xrange(11):
+		for i in range(11):
 			args = ', '.join(['arg%d' % j for j in range(i)])
 			f += '''
 	if length == %d:
@@ -242,18 +274,15 @@ def caller(name, variable_argument, length, %s):
 		global KPLUGS_OBJECTS
 
 		self._va = variable_argument
-		self.plug = kplugs_cache.new_plug(ip = ip)
+		self.plug = kplugs_cache["Plug"].new_obj(ip = ip)
 		self.word_size = self.plug.world.word_size
 		self.random_names = {}
 		self._build_caller_func()
-		self._mem = Mem(ip = ip)
+		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
 		self._args = None
 		self._args_len = 0
 
 		KPLUGS_OBJECTS.append(self)
-
-		# we remove the Mem object, to make sure that it will not be freed until we unhook everything
-		KPLUGS_OBJECTS.remove(self._mem)
 
 		self._valid = True
 
@@ -265,25 +294,32 @@ def caller(name, variable_argument, length, %s):
 		if self._args:
 			self._mem.free(self._args)
 		self._args = n
+		self._args_len = new_length
 
 	def __getitem__(self, n):
 		assert self._valid, "The object was already released!"
 		assert isinstance(n, str), Exception("Not a string")
 		assert len(n) > 0, Exception("Wrong string length")
 
+		if type(n) is str:
+			n = n.encode()
+
 		def caller(*args):
 			assert self._valid, "The object was already released!"
 			assert len(args) <= 10, "To much arguments for kernel function"
 
 			new_args = []
-			buf = n + "\0"
-			all_length = sum(map(lambda i:len(i) + 1, filter(lambda i:type(i) == str, args))) + len(n) + 1
+			buf = n + b"\0"
+			all_length = sum([len(i) + 1 for i in [i for i in args if type(i) == str]]) + len(n) + 1
 			self.realloc(all_length)
 
 			for arg in args:
-				if type(arg) == str:
+				if type(arg) is str:
+					arg = arg.encode()
+
+				if type(arg) is bytes:
 					new_args.append(self._args + len(buf))
-					buf += arg + "\0"
+					buf += arg + b"\0"
 
 				else:
 					new_args.append(arg)
@@ -298,7 +334,7 @@ def caller(name, variable_argument, length, %s):
 
 		return caller
 
-	def release(self):
+	def close(self):
 		global KPLUGS_OBJECTS
 
 		assert self._valid, "The object was already released!"
@@ -306,29 +342,26 @@ def caller(name, variable_argument, length, %s):
 		self._valid = False
 		if self._args:
 			self._mem.free(self._args)
-		kplugs_cache.release(self.plug)
+		kplugs_cache["Plug"].release(self.plug)
 		if KPLUGS_OBJECTS.count(self):
 			KPLUGS_OBJECTS.remove(self)
-		self._mem.release()
+		kplugs_cache["Mem"].release(self._mem)
 
 class Hook(object):
 	def __init__(self, ip = None):
 		global KPLUGS_OBJECTS
 
-		self._mem = Mem(ip = ip)
+		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
 		self._hooks = {}
-		self._caller = Caller(ip = ip)
+		self._caller = kplugs_cache["Caller"].new_obj(ip = ip)
 		self.word_size = self._caller.word_size
 		KPLUGS_OBJECTS.append(self)
 
-		# we remove the Mem object, to make sure that it will not be freed until we unhook everything
-		KPLUGS_OBJECTS.remove(self._mem)
-		KPLUGS_OBJECTS.remove(self._caller)
 		self._valid = True
 
 	def hook(self, where, func):
 		assert self._valid, "The object was already released!"
-		if self._hooks.has_key(func.addr):
+		if func.addr in self._hooks:
 			raise Exception("This function is already a callback of this class")
 
 		# create a kprobe struct
@@ -355,42 +388,39 @@ class Hook(object):
 		else:
 			addr = func
 
-		if not self._hooks.has_key(addr):
+		if addr not in self._hooks:
 			raise Exception("Hook doesn't exists")
 		kp = self._hooks.pop(addr)
 
 		# unregister the kprobe hook
 		self._caller["unregister_kprobe"](kp)
-			
 
 
-	def release(self):
+
+	def close(self):
 		assert self._valid, "The object was already released!"
 		global KPLUGS_OBJECTS
 
 		self._valid = False
-		for i in self._hooks.keys():
+		for i in list(self._hooks.keys()):
 			self.unhook(i)
 		self._hooks = {}
-		self._mem.release()
+		kplugs_cache["Mem"].release(self._mem)
 		if KPLUGS_OBJECTS.count(self):
 			KPLUGS_OBJECTS.remove(self)
-		self._caller.release()
+		kplugs_cache["Caller"].release(self._caller)
 
 class Symbol(object):
 	def __init__(self, ip = None):
 		global KPLUGS_OBJECTS
 
-		self._caller = Caller(ip = ip)
-		self._mem = Mem(ip = ip)
+		self._caller = kplugs_cache["Caller"].new_obj(ip = ip)
+		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
 		assert self._caller.word_size == self._mem.word_size, "Inconsistant word size!"
 		self.word_size = self._caller.word_size
 
 		KPLUGS_OBJECTS.append(self)
 
-		# we remove the Mem object, to make sure that it will not be freed until we unhook everything
-		KPLUGS_OBJECTS.remove(self._mem)
-		KPLUGS_OBJECTS.remove(self._caller)
 		self._valid = True
 
 
@@ -407,12 +437,20 @@ class Symbol(object):
 				return struct.unpack(self._caller.plug.world.form, self._mem[ret:ret+self.word_size])[0]
 		return ret
 
-	def release(self):
+	def close(self):
 		assert self._valid, "The object was already released!"
 		global KPLUGS_OBJECTS
 
 		self._valid = False
-		self._mem.release()
+		kplugs_cache["Mem"].release(self._mem)
 		if KPLUGS_OBJECTS.count(self):
 			KPLUGS_OBJECTS.remove(self)
-		self._caller.release()
+		kplugs_cache["Caller"].release(self._caller)
+
+kplugs_cache = {
+	'Plug' : ObjCache(Plug),
+	'Mem'    : ObjCache(Mem),
+	'Symbol' : ObjCache(Symbol),
+	'Caller' : ObjCache(Caller),
+}
+
