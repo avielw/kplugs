@@ -335,7 +335,7 @@ send_func:
 			goto clean;
 		}
 
-		err = send_data_to_other(&func->to_kernel, dyn);
+		err = send_data_to_other(&func->to_kernel, dyn, command.nonblock);
 		memory_dyn_clean(&dyn_head);
 		if (err < 0) {
 			err = create_error(&command, err);
@@ -362,7 +362,7 @@ send_func:
 recv_func:
 		memory_dyn_init(&dyn_head);
 
-		err = recv_data_from_other(&func->to_user, &dyn_head, &dyn);
+		err = recv_data_from_other(&func->to_user, &dyn_head, &dyn, command.nonblock);
 		if (err) {
 			err = create_error(&command, err);
 			goto clean;

@@ -4,7 +4,7 @@
 #define CONFIG
 
 #define VERSION_MAJOR		(3)
-#define VERSION_MINOR		(0)
+#define VERSION_MINOR		(1)
 
 #define MAX_RECUR			(20)
 #define MAX_CALL_RECUR		(30)

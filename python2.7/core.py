@@ -8,7 +8,7 @@ import ctypes
 import os
 
 WORD_SIZE = struct.calcsize("P")
-VERSION   = (3, 0)
+VERSION   = (3, 1)
 
 # the kplugs main class
 class PlugCore(object):
@@ -47,6 +47,7 @@ class PlugCore(object):
 	"Unsupported version",
 	"Not a dynamic memory",
 	"Operation was interrupted",
+	"Could not block",
 	]
 
 
@@ -57,12 +58,14 @@ class PlugCore(object):
 		self.glob = glob
 		self.last_exception = []
 
-	def _exec_cmd(self, op, len1, len2, val1, val2):
+	def _exec_cmd(self, op, len1, len2, val1, val2, nonblock=False):
 		ws = self.word_size
 		word_size  = ws
 		word_size |= (1 << 6) # supports only little endian version.
 		if self.glob:
 			word_size |= (1 << 7)
+		if nonblock:
+			word_size |= (1 << 5)
 
 		header = chr(word_size) + chr(VERSION[0]) + chr(VERSION[1]) + chr(0)
 		header = (header + "\0"*ws)[:ws]
@@ -148,7 +151,7 @@ class PlugCore(object):
 				self.world.free(name_buf)
 
 
-	def send(self, func, data):
+	def send(self, func, data, nonblock=False):
 		if func.anonymous:
 			op = PlugCore.KPLUGS_SEND_DATA_ANONYMOUS
 			length = 0
@@ -165,14 +168,14 @@ class PlugCore(object):
 			addr = self.world.alloc(len(data))
 			try:
 				self.world.mem_write(addr, data)
-				return self._exec_cmd(op, length, len(data), ptr, addr)
+				return self._exec_cmd(op, length, len(data), ptr, addr, nonblock)
 			finally:
 				self.world.free(addr)
 		finally:
 			if name_buf:
 				self.world.free(name_buf)
 
-	def recv(self, func, buf_length):
+	def recv(self, func, buf_length, nonblock=False):
 		addr = 0
 		try:
 			if func.anonymous:
@@ -187,7 +190,7 @@ class PlugCore(object):
 				ptr = addr + buf_length
 				self.world.mem_write(ptr, func.name)
 
-			real_length = self._exec_cmd(op, length, buf_length, ptr, addr)
+			real_length = self._exec_cmd(op, length, buf_length, ptr, addr, nonblock)
 			return self.world.mem_read(addr, min(buf_length, real_length))
 		finally:
 			if addr:
@@ -227,6 +230,8 @@ class PlugCore(object):
 					allocs.append(len(data))
 					data += str(arg)
 					data += b"\0" * (ws - (len(data) % ws))
+				else:
+					allocs.append(0)
 
 			addr = self.world.alloc(len(data) + len(args)*ws)
 			args_buf = addr + len(data)
@@ -285,6 +290,10 @@ def validate_name(name):
 # a Function class
 # you should not use it directly but through the Plug class
 class Function(object):
+
+	# Parameters:
+	PARAM_GLOBAL = 0
+	PARAM_NONBLOCK = 1
 
 	# Operations:
 	OP_FUNCTION = 0
@@ -592,11 +601,11 @@ class Function(object):
 	def unload(self):
 		self.plug.unload(self)
 
-	def send(self, data):
-		return self.plug.send(self, data)
+	def send(self, data, nonblock=False):
+		return self.plug.send(self, data, nonblock)
 
-	def recv(self, length):
-		return self.plug.recv(self, length)
+	def recv(self, length, nonblock=False):
+		return self.plug.recv(self, length, nonblock)
 
 	def __call__(self, *args):
 		return self.plug(self, *args)
@@ -1208,9 +1217,10 @@ def fstring_function(%s):
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
 
 			elif type(node.func) == Name and node.func.id in ["send", "recv"]:
+				if len(node.args) > 3:
+					raise Exception("Bad syntax of %s" % (node.func.id,))
+
 				if node.func.id == "send":
-					if len(node.args) > 2:
-						raise Exception("Bad syntax of send")
 					if type(node.args[0]) != Name:
 						raise Exception("send's argument must be a variable")
 					try:
@@ -1221,20 +1231,29 @@ def fstring_function(%s):
 						raise Exception("Wrong variable type")
 
 					arg2 = 0
+					arg3 = 0
 					if len(node.args) > 1:
-						if type(node.args[1]) != Str:
-							raise Exception("Second parameter must be a string")
-						arg2 = self.func._get_string_value(node.args[1].s)
-					self._create_flow(Function.FLOW_SEND_DATA, var["id"], arg2)
+						if type(node.args[1]) != Num or (node.args[1].n != 0 and node.args[1].n != 1):
+							raise Exception("Bad syntax of send")
+						arg3 |= node.args[1].n << Function.PARAM_NONBLOCK
+					if len(node.args) > 2:
+						if type(node.args[2]) != Str:
+							raise Exception("Third parameter must be a string")
+						arg2 = self.func._get_string_value(node.args[2].s)
+
+					self._create_flow(Function.FLOW_SEND_DATA, var["id"], arg2, arg3)
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
 				else:
-					is_global = 0
-					if len(node.args) == 2:
+					arg2 = 0
+					if len(node.args) > 1:
 						if type(node.args[1]) != Num or (node.args[1].n != 0 and node.args[1].n != 1):
-							raise Exception("Bad syntax of new")
-						is_global = node.args[1].n
-					elif len(node.args) != 1:
-						raise Exception("Bad syntax of recv")
+							raise Exception("Bad syntax of recv")
+						arg2 |= node.args[1].n << Function.PARAM_NONBLOCK
+					if len(node.args) > 2:
+						if type(node.args[2]) != Num or (node.args[2].n != 0 and node.args[2].n != 1):
+							raise Exception("Bad syntax of recv")
+						arg2 |= node.args[2].n << Function.PARAM_GLOBAL
+
 					try:
 						var = self.func._get_var_id(node.args[0].id)
 						if var["type"] != Function.VAR_POINTER:
@@ -1242,7 +1261,7 @@ def fstring_function(%s):
 					except:
 						raise Exception("Can receive only pointers")
 
-					return self.func._get_exp(Function.EXP_RECV_DATA, var["id"], is_global)
+					return self.func._get_exp(Function.EXP_RECV_DATA, var["id"], arg2)
 
 			if name.startswith("KERNEL_"):
 				# this is the macro for using external functions

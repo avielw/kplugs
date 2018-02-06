@@ -17,7 +17,8 @@ typedef struct {
 
 
 typedef struct {
-	byte word_size	: 6;
+	byte word_size	: 5;
+	byte nonblock	: 1;
 	byte l_endian	: 1;
 	byte is_global	: 1;
 

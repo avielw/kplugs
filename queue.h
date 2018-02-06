@@ -23,8 +23,8 @@ struct queue_head {
 
 void init_queue(struct queue_head *queue, void (*free_data)(void *));
 
-int queue_enqueue(struct queue_head *queue, void *data);
-int queue_dequeue(struct queue_head *queue, void **data);
+int queue_enqueue(struct queue_head *queue, void *data, int nonblock);
+int queue_dequeue(struct queue_head *queue, void **data, int nonblock);
 
 void queue_interrupt(struct queue_head *queue);
 void queue_kill(struct queue_head *queue);

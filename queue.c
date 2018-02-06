@@ -27,7 +27,7 @@ void init_queue(struct queue_head *queue, void (*free_data)(void *))
 	} \
 } while (0)
 
-int queue_enqueue(struct queue_head *queue, void *data)
+int queue_enqueue(struct queue_head *queue, void *data, int nonblock)
 {
 	struct queue_node *node = NULL;
 	unsigned long flags;
@@ -48,6 +48,9 @@ int queue_enqueue(struct queue_head *queue, void *data)
 	queue->waiting++;
 	while (queue->size >= MAX_QUEUE_SIZE) {
 		spin_unlock_irqrestore(&queue->lock, flags);
+        if (nonblock) {
+            return -ERROR_BLOCK;
+        }
 #ifdef __KERNEL__
 		if (in_atomic()) {
 			/* we have to do a busy wait */
@@ -88,7 +91,7 @@ int queue_enqueue(struct queue_head *queue, void *data)
 	return 0;
 }
 
-int queue_dequeue(struct queue_head *queue, void **data)
+int queue_dequeue(struct queue_head *queue, void **data, int nonblock)
 {
 	struct queue_node *node = NULL;
 	unsigned long flags;
@@ -110,6 +113,9 @@ int queue_dequeue(struct queue_head *queue, void **data)
 	queue->waiting++;
 	while (!queue->size) {
 		spin_unlock_irqrestore(&queue->lock, flags);
+        if (nonblock) {
+            return -ERROR_BLOCK;
+        }
 #ifdef __KERNEL__
 		if (in_atomic()) {
 			/* we have to do a busy wait */

@@ -8,6 +8,13 @@
 #include "queue.h"
 
 
+enum {
+	PARAM_GLOBAL,
+	PARAM_NONBLOCK,
+
+	PARAM_MAX,
+};
+
 /* operator types */
 typedef enum {
 	OP_FUNCTION,

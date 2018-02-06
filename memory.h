@@ -62,9 +62,9 @@ int transfer_dyn_mem(dyn_mem_t *head, dyn_mem_t *dyn);
 /* callback for the queue struct */
 void dyn_free_callback(void *data);
 /* get a buffer from user */
-int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **dyn);
+int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **dyn, int nonblock);
 /* send a buffer to user */
-int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn);
+int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn, int nonblock);
 
 /* check memory permissions */
 int memory_check_addr_perm(const byte *addr, word *size, int write, byte *read_only);

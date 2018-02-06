@@ -368,7 +368,7 @@ static int function_check_expression(	bytecode_t *code,
 				ERROR(-ERROR_VAR);
 			}
 
-			if (code[val1].var.type != VAR_POINTER || val2 > 1) {
+			if (code[val1].var.type != VAR_POINTER || val2 >= (1 << PARAM_MAX)) {
 				ERROR(-ERROR_PARAM);
 			}
 
@@ -560,6 +560,10 @@ static int function_check_flow(	bytecode_t *code,
 			case FLOW_SEND_DATA:
 				if (val1 >= numvars) {
 					ERROR(-ERROR_VAR);
+				}
+
+				if (val3 >= (1 << PARAM_MAX)) {
+					ERROR(-ERROR_PARAM);
 				}
 
 				DEBUG_PRINT("send(%s%lu", variable_names[code[val1].var.type], val1);

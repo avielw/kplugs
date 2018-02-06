@@ -23,6 +23,7 @@ typedef enum {
 	ERROR_VERSION,	/* unsupported version */
 	ERROR_NODYM,	/* not a dynamic memory */
 	ERROR_INTER,	/* operation was interrupted */
+	ERROR_BLOCK,	/* could not block */
 } error_t;
 
 typedef struct list_head_s {

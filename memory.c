@@ -628,7 +628,7 @@ void dyn_free_callback(void *data)
 }
 
 /* get a buffer from user */
-int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **dyn)
+int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **dyn, int nonblock)
 {
 	int err;
 
@@ -636,7 +636,7 @@ int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **
 		head = &dyn_global_head;
 	}
 
-	if ((err = queue_dequeue(queue, (void **)dyn))) {
+	if ((err = queue_dequeue(queue, (void **)dyn, nonblock))) {
 		return err;
 	}
 
@@ -648,7 +648,7 @@ int recv_data_from_other(struct queue_head *queue, dyn_mem_t *head, dyn_mem_t **
 }
 
 /* send a buffer to user */
-int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn)
+int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn, int nonblock)
 {
 	int err = 0;
 
@@ -657,7 +657,7 @@ int send_data_to_other(struct queue_head *queue, dyn_mem_t *dyn)
 		return err;
 	}
 
-	if ((err = queue_enqueue(queue, (void *)dyn))) {
+	if ((err = queue_enqueue(queue, (void *)dyn, nonblock))) {
 		memory_free_dyn(dyn->head, &dyn->data);
 		return err;
 	}

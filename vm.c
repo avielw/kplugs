@@ -481,7 +481,9 @@ word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 
 			case FLOW_SEND_DATA:
 				if (val2) {
-					calling_function = context_find_function(state->func->cont, state->func->raw + state->func->string_table[val2 - 1]);
+					if (!(val3 & (1 << PARAM_GLOBAL))) {
+						calling_function = context_find_function(state->func->cont, state->func->raw + state->func->string_table[val2 - 1]);
+					}
 					if (NULL == calling_function) {
 						if (NULL != GLOBAL_CONTEXT && state->func->cont != GLOBAL_CONTEXT) {
 							calling_function = context_find_function(GLOBAL_CONTEXT, state->func->raw + state->func->string_table[val2 - 1]);
@@ -517,7 +519,7 @@ word vm_run_function(function_t *func, kpstack_t *arg_stack, exception_t *excep)
 						goto send_data_except;
 					}
 				}
-				if ((err = send_data_to_other(val2 ? &calling_function->to_kernel :  &func->to_user, dyn))) {
+				if ((err = send_data_to_other(val2 ? &calling_function->to_kernel :  &func->to_user, dyn, val3 & (1 << PARAM_NONBLOCK)))) {
 					/* send_data_to_other delete the dyn */
 					dyn = NULL;
 send_data_except:
@@ -979,7 +981,7 @@ send_data_except:
 			break;
 
 			case EXP_RECV_DATA:
-				ret = recv_data_from_other(&func->to_kernel, val2 ? NULL : &dyn_head, &dyn);
+				ret = recv_data_from_other(&func->to_kernel, (val2 & (1 << PARAM_GLOBAL)) ? NULL : &dyn_head, &dyn, val2 & (1 << PARAM_NONBLOCK));
 				if (ret) {
 					VM_THROW_EXCEPTION(-ret);
 				} else {
