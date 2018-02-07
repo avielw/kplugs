@@ -8,7 +8,7 @@ import ctypes
 import os
 
 WORD_SIZE = struct.calcsize("P")
-VERSION   = (3, 1)
+VERSION   = (3, 2)
 
 # the kplugs main class
 class PlugCore(object):
@@ -298,8 +298,8 @@ def validate_name(name):
 class Function(object):
 
 	# Parameters:
-	PARAM_GLOBAL = 0
-	PARAM_NONBLOCK = 1
+	PARAM_GLOBAL = 1
+	PARAM_NONBLOCK = 2
 
 	# Operations:
 	OP_FUNCTION = 0
@@ -1230,10 +1230,10 @@ def fstring_function(%s):
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
 
 			elif type(node.func) == Name and node.func.id in ["send", "recv"]:
-				if len(node.args) > 3:
-					raise Exception("Bad syntax of %s" % (node.func.id,))
-
 				if node.func.id == "send":
+					if len(node.args) < 1 or len(node.args) > 3:
+						raise Exception("Bad syntax of send")
+
 					if type(node.args[0]) != Name:
 						raise Exception("send's argument must be a variable")
 					try:
@@ -1244,11 +1244,11 @@ def fstring_function(%s):
 						raise Exception("Wrong variable type")
 
 					arg2 = 0
-					arg3 = 0
 					if len(node.args) > 1:
-						if type(node.args[1]) != Num or (node.args[1].n != 0 and node.args[1].n != 1):
-							raise Exception("Bad syntax of send")
-						arg3 |= node.args[1].n << Function.PARAM_NONBLOCK
+						arg3 = self.visit(node.args[1])
+					else:
+						arg3 = self.func._get_exp(Function.EXP_WORD, 0)
+
 					if len(node.args) > 2:
 						if type(node.args[2]) != Str:
 							raise Exception("Third parameter must be a string")
@@ -1257,15 +1257,13 @@ def fstring_function(%s):
 					self._create_flow(Function.FLOW_SEND_DATA, var["id"], arg2, arg3)
 					return self.func._get_exp(Function.EXP_WORD, 0) # return 0
 				else:
-					arg2 = 0
+					if len(node.args) < 1 or len(node.args) > 2:
+						raise Exception("Bad syntax of recv")
+
 					if len(node.args) > 1:
-						if type(node.args[1]) != Num or (node.args[1].n != 0 and node.args[1].n != 1):
-							raise Exception("Bad syntax of recv")
-						arg2 |= node.args[1].n << Function.PARAM_NONBLOCK
-					if len(node.args) > 2:
-						if type(node.args[2]) != Num or (node.args[2].n != 0 and node.args[2].n != 1):
-							raise Exception("Bad syntax of recv")
-						arg2 |= node.args[2].n << Function.PARAM_GLOBAL
+						arg2 = self.visit(node.args[1])
+					else:
+						arg2 = self.func._get_exp(Function.EXP_WORD, 0)
 
 					try:
 						var = self.func._get_var_id(node.args[0].id)

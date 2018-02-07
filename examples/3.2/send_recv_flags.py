@@ -12,7 +12,7 @@ def dyn_free(ptr):
     pointer(ptr)
     delete(ptr)
 
-def send_wait(data, nonblock, internal):
+def send_wait(data, flags, internal):
     buffer(data, 0x100)
     pointer(ptr)
 
@@ -22,25 +22,15 @@ def send_wait(data, nonblock, internal):
     ptr = new(len)
     KERNEL_memcpy(ptr, data, len);
 
-    if nonblock:
-        if internal:
-            send(ptr, 1, "internal")
-        else:
-            send(ptr, 1)
+    if internal:
+        send(ptr, flags, "internal")
     else:
-        if internal:
-            send(ptr, 0, "internal")
-        else:
-            send(ptr)
+        send(ptr, flags)
 
-def recv_wait(nonblock, ret):
+def recv_wait(flags, ret):
     pointer(ptr)
     array(ret, 2)
-    if nonblock:
-        ret[0] = recv(ptr, 1, 1)
-    else:
-        ret[0] = recv(ptr, 0, 1)
-
+    ret[0] = recv(ptr, flags)
     ret[1] = ptr
 
 def internal():
@@ -73,11 +63,17 @@ def internal():
             print(send.recv(int(data[1]), nonblock).decode())
 
         elif data[0] == "send_kernel":
-            send(data[1], int(data[2]), int(data[3]))
+            flags = 0
+            if int(data[2]):
+                flags |= kplugs.Function.PARAM_NONBLOCK
+            send(data[1], flags, int(data[3]))
 
         elif data[0] == "recv_kernel":
+            flags = kplugs.Function.PARAM_GLOBAL
+            if int(data[1]):
+                flags |= kplugs.Function.PARAM_NONBLOCK
             ret = bytearray(plug.word_size * 2)
-            recv(int(data[1]), ret)
+            recv(flags, ret)
             n, data = plug.world.unpack(plug.world.form*2, bytes(ret))
             print(mem[data:data+n].decode())
             free(data)

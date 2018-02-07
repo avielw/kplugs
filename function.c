@@ -368,12 +368,15 @@ static int function_check_expression(	bytecode_t *code,
 				ERROR(-ERROR_VAR);
 			}
 
-			if (code[val1].var.type != VAR_POINTER || val2 >= (1 << PARAM_MAX)) {
+			if (code[val1].var.type != VAR_POINTER) {
 				ERROR(-ERROR_PARAM);
 			}
 
-			DEBUG_PRINT("recv(%s%lu)", variable_names[code[val1].var.type], val1);
+			DEBUG_PRINT("recv(%s%lu, ", variable_names[code[val1].var.type], val1);
 
+			CHECK_EXPRESSION(val2);
+
+			DEBUG_PRINT(")");
 			return found;
 
 		case EXP_ARGS:
@@ -562,11 +565,9 @@ static int function_check_flow(	bytecode_t *code,
 					ERROR(-ERROR_VAR);
 				}
 
-				if (val3 >= (1 << PARAM_MAX)) {
-					ERROR(-ERROR_PARAM);
-				}
+				DEBUG_PRINT("send(%s%lu, ", variable_names[code[val1].var.type], val1);
 
-				DEBUG_PRINT("send(%s%lu", variable_names[code[val1].var.type], val1);
+				CHECK_EXPRESSION(val3);
 
 				if (val2) {
 					DEBUG_PRINT(", [const%lu]", val2);
