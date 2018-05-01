@@ -8,7 +8,7 @@ import ctypes
 import os
 
 WORD_SIZE = struct.calcsize("P")
-VERSION   = (3, 2)
+VERSION   = (3, 3)
 
 # the kplugs main class
 class PlugCore(object):

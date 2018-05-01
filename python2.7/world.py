@@ -201,6 +201,9 @@ class PlugWorld(object):
 			self._flush()
 			self.sock.close()
 			self._free_cache = {}
+		else:
+			os.close(self.fd)
+			self.fd = -1
 		self.my_objects = []
 
 	def mem_write(self, addr, data):

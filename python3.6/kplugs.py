@@ -1,12 +1,10 @@
 #!/usr/bin/python
 
 from .core import PlugCore, Function
+import traceback
 import threading
 import ctypes
 import struct
-
-# we want it to be global because we don't want hooks callbacks to be freed under our feet in case that the module was not closed correctly
-KPLUGS_OBJECTS = []
 
 KPROBE_STRUCT_MAXSIZE = 0x40
 KPROBE_STRUCT_ADDR    = 5
@@ -15,80 +13,82 @@ KPROBE_STRUCT_HANDLER = 8
 
 WORD_SIZE = struct.calcsize("P")
 
-KEEP_GLOBALS = False
-
 class Plug(PlugCore):
-	def __init__(self, *args, **kwargs):
-		global KPLUGS_OBJECTS
-
-		super(Plug, self).__init__(*args, **kwargs)
-		KPLUGS_OBJECTS.append(self)
+	def __init__(self, glob = False, ip = None):
+		self.cache = None
+		self.ctx = None
+		super(Plug, self).__init__(glob, ip)
 
 	def close(self, keep_globals=False):
-		global KPLUGS_OBJECTS
 
-		if KEEP_GLOBALS:
-			keep_globals = True
-
-		if KPLUGS_OBJECTS.count(self):
-			KPLUGS_OBJECTS.remove(self)
+		if self.cache:
+			self.cache.release(self)
+			return
 
 		super(Plug, self).close(keep_globals)
 
 class ObjCache(object):
 	class OneCache(object):
-		def __init__(self, ip, obj):
-			self.obj = obj(ip = ip)
+		def __init__(self, args, ctx, obj):
+			if not obj is Plug:
+				args = (ctx,) + args
+			self.obj = obj(*args)
 			self.count = 1
 
-	def __init__(self, obj):
-		self._ip2obj = {}
-		self._obj2ip = {}
+	def __init__(self, ctx, obj):
+		self._args2obj = {}
+		self._obj2args = {}
 		self._lock = threading.Lock()
 		self._obj = obj
+		self._ctx = ctx
 
-	def new_obj(self, ip = None):
-		global KPLUGS_OBJECTS
+	def new_obj(self, args = ()):
 
 		self._lock.acquire()
 		try:
-			if ip in self._ip2obj:
-				self._ip2obj[ip].count += 1
-				return self._ip2obj[ip].obj;
+			if args in self._args2obj:
+				self._args2obj[args].count += 1
+				return self._args2obj[args].obj;
 			else:
-				obj = ObjCache.OneCache(ip, self._obj)
-				if KPLUGS_OBJECTS.count(obj.obj):
-					KPLUGS_OBJECTS.remove(obj.obj)
-				self._ip2obj[ip] = obj
-				self._obj2ip[obj.obj] = ip
+				obj = ObjCache.OneCache(args, self._ctx, self._obj)
+				self._args2obj[args] = obj
+				self._obj2args[obj.obj] = args
+				obj.obj.cache = self
 				return obj.obj
 		finally:
 			self._lock.release()
 
-	def release(self, obj):
+	def releaseall_and_warn(self):
 		self._lock.acquire()
 		try:
-			ip = self._obj2ip[obj]
-			self._ip2obj[ip].count -= 1
-			if self._ip2obj[ip].count == 0:
-				self._ip2obj.pop(ip)
-				self._obj2ip.pop(obj)
-				obj.close()
+			while len(self._args2obj):
+				print("Warning: an orphan object was released")
+				o = self._args2obj[self._args2obj.keys()[0]]
+				o.count = 1
+				try:
+					self.release(o, False)
+				finally:
+					print(traceback.format_exc())
 		finally:
 			self._lock.release()
 
-# unload kplugs - it's important unload the library or the computer may crash if you use hooks!
-def release_kplugs():
-	global KPLUGS_OBJECTS
-	global KEEP_GLOBALS
-
-	KEEP_GLOBALS = True
-	try:
-		while len(KPLUGS_OBJECTS) != 0:
-			KPLUGS_OBJECTS[0].close()
-	finally:
-		KEEP_GLOBALS = False
-
+	def release(self, obj, lock=True):
+		release = False
+		if lock:
+			self._lock.acquire()
+		try:
+			args = self._obj2args[obj]
+			self._args2obj[args].count -= 1
+			if self._args2obj[args].count == 0:
+				self._args2obj.pop(args)
+				self._obj2args.pop(obj)
+				obj.cache = None
+				release = True
+		finally:
+			if lock:
+				self._lock.release()
+		if release:
+			obj.close()
 
 
 # a memory class
@@ -137,16 +137,15 @@ def safe_memcpy(dst, src, size, dpid, spid):
 			self._allocs.remove(ptr)
 		self._kfree(ptr)
 
-	def __init__(self, default_pid = 0, ip = None, caller = None):
-		global KPLUGS_OBJECTS
-
+	def __init__(self, context, default_pid = 0, ip = None):
+		self.cache = None
+		self.ctx = context
 		self._pid = default_pid
 		self._allocs = []
-		self._plug = kplugs_cache["Plug"].new_obj(ip = ip)
+		self._plug = self.ctx.cache["Plug"].new_obj((False, ip))
 		self.word_size = self._plug.world.word_size
 		self._build_mem_funcs()
 
-		KPLUGS_OBJECTS.append(self)
 		self._valid = True
 
 	def __getitem__(self, n):
@@ -227,16 +226,17 @@ def safe_memcpy(dst, src, size, dpid, spid):
 
 	def close(self):
 		assert self._valid, "The object was already released!"
-		global KPLUGS_OBJECTS
+
+		if self.cache:
+			self.cache.release(self)
+			return
 
 		self._valid = False
 		for i in self._allocs:
 			self._kfree(i)
 		self._allocs = []
 
-		if KPLUGS_OBJECTS.count(self):
-			KPLUGS_OBJECTS.remove(self)
-		kplugs_cache["Plug"].release(self._plug)
+		self._plug.close()
 
 
 class Caller(object):
@@ -270,19 +270,17 @@ def caller(name, variable_argument, length, %s):
 '''
 		self._func = self.plug.compile(f)[0]
 
-	def __init__(self, variable_argument = False, ip = None):
-		global KPLUGS_OBJECTS
-
+	def __init__(self, context, variable_argument = False, ip = None):
+		self.cache = None
 		self._va = variable_argument
-		self.plug = kplugs_cache["Plug"].new_obj(ip = ip)
+		self.ctx = context
+		self.plug = self.ctx.cache["Plug"].new_obj((False, ip))
 		self.word_size = self.plug.world.word_size
 		self.random_names = {}
 		self._build_caller_func()
-		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
+		self._mem = self.ctx.cache["Mem"].new_obj((0, ip))
 		self._args = None
 		self._args_len = 0
-
-		KPLUGS_OBJECTS.append(self)
 
 		self._valid = True
 
@@ -335,27 +333,26 @@ def caller(name, variable_argument, length, %s):
 		return caller
 
 	def close(self):
-		global KPLUGS_OBJECTS
-
 		assert self._valid, "The object was already released!"
+
+		if self.cache:
+			self.cache.release(self)
+			return
 
 		self._valid = False
 		if self._args:
 			self._mem.free(self._args)
-		kplugs_cache["Plug"].release(self.plug)
-		if KPLUGS_OBJECTS.count(self):
-			KPLUGS_OBJECTS.remove(self)
-		kplugs_cache["Mem"].release(self._mem)
+		self.plug.close()
+		self._mem.close()
 
 class Hook(object):
-	def __init__(self, ip = None):
-		global KPLUGS_OBJECTS
-
-		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
+	def __init__(self, context, ip = None):
+		self.cache = None
+		self.ctx = context
+		self._mem = self.ctx.cache["Mem"].new_obj((0, ip))
 		self._hooks = {}
-		self._caller = kplugs_cache["Caller"].new_obj(ip = ip)
+		self._caller = self.ctx.cache["Caller"].new_obj((False, ip))
 		self.word_size = self._caller.word_size
-		KPLUGS_OBJECTS.append(self)
 
 		self._valid = True
 
@@ -399,27 +396,26 @@ class Hook(object):
 
 	def close(self):
 		assert self._valid, "The object was already released!"
-		global KPLUGS_OBJECTS
+
+		if self.cache:
+			self.cache.release(self)
+			return
 
 		self._valid = False
 		for i in list(self._hooks.keys()):
 			self.unhook(i)
 		self._hooks = {}
-		kplugs_cache["Mem"].release(self._mem)
-		if KPLUGS_OBJECTS.count(self):
-			KPLUGS_OBJECTS.remove(self)
-		kplugs_cache["Caller"].release(self._caller)
+		self._mem.close()
+		self._caller.close()
 
 class Symbol(object):
-	def __init__(self, ip = None):
-		global KPLUGS_OBJECTS
-
-		self._caller = kplugs_cache["Caller"].new_obj(ip = ip)
-		self._mem = kplugs_cache["Mem"].new_obj(ip = ip)
+	def __init__(self, context, ip = None):
+		self.cache = None
+		self.ctx = context
+		self._caller = self.ctx.cache["Caller"].new_obj((False, ip))
+		self._mem = self.ctx.cache["Mem"].new_obj((0, ip))
 		assert self._caller.word_size == self._mem.word_size, "Inconsistant word size!"
 		self.word_size = self._caller.word_size
-
-		KPLUGS_OBJECTS.append(self)
 
 		self._valid = True
 
@@ -439,18 +435,115 @@ class Symbol(object):
 
 	def close(self):
 		assert self._valid, "The object was already released!"
-		global KPLUGS_OBJECTS
+
+		if self.cache:
+			self.cache.release(self)
+			return
 
 		self._valid = False
-		kplugs_cache["Mem"].release(self._mem)
-		if KPLUGS_OBJECTS.count(self):
-			KPLUGS_OBJECTS.remove(self)
-		kplugs_cache["Caller"].release(self._caller)
+		self._mem.close()
+		self._caller.close()
 
-kplugs_cache = {
-	'Plug' : ObjCache(Plug),
-	'Mem'    : ObjCache(Mem),
-	'Symbol' : ObjCache(Symbol),
-	'Caller' : ObjCache(Caller),
+class Context(object):
+	def __init__(self, ip=None):
+		self._valid = True
+
+		self._lock = threading.Lock()
+
+		self.objs  = []
+		self.cache = {
+			'Plug'   : ObjCache(self, Plug),
+			'Mem'    : ObjCache(self, Mem),
+			'Hook'   : ObjCache(self, Hook),
+			'Symbol' : ObjCache(self, Symbol),
+			'Caller' : ObjCache(self, Caller),
 }
 
+	def append(self, obj):
+		class KplugsObjectWrapper(object):
+			def __init__(self, ctx, obj):
+				self._wrapper_valid = True
+				self.obj = obj
+				self.ctx = ctx
+
+			def __repr__(self):
+				return repr(self.obj)
+
+			def __getattr__(self, attr):
+				if attr in self.__dict__:
+					return getattr(self, attr)
+				return getattr(self.obj, attr)
+
+			def __getitem__(self, n):
+				return self.obj.__getitem__(n)
+
+			def __setitem__(self, n, b):
+				return self.obj.__setitem__(n, b)
+
+			def close(self):
+				assert self._wrapper_valid, "The object was already released!"
+				self.ctx.remove(self)
+				self._wrapper_valid = False
+				self.obj.close()
+
+		self._lock.acquire()
+		try:
+			assert not self.objs.count(obj), "The object is already attached to this context!"
+			obj = KplugsObjectWrapper(self, obj)
+			self.objs.append(obj)
+			return obj
+		finally:
+			self._lock.release()
+
+	def remove(self, obj):
+		self._lock.acquire()
+		try:
+			if self.objs.count(obj):
+				self.objs.remove(obj)
+		finally:
+			self._lock.release()
+
+	def Plug(self, glob = False, ip = None):
+		assert self._valid, "The object was already released!"
+
+		plug = self.cache["Plug"].new_obj((glob, ip))
+		assert plug.ctx is None or plug.ctx is self, "An invalid Plug was created!"
+		plug.ctx = self
+		return self.append(plug)
+
+
+	def Mem(self, default_pid = 0, ip = None):
+		assert self._valid, "The object was already released!"
+		return self.append(self.cache["Mem"].new_obj((default_pid, ip)))
+
+	def Caller(self, variable_argument = False, ip = None):
+		assert self._valid, "The object was already released!"
+		return self.append(self.cache["Caller"].new_obj((variable_argument, ip)))
+
+	def Symbol(self, ip = None):
+		assert self._valid, "The object was already released!"
+		return self.append(self.cache["Symbol"].new_obj((ip,)))
+
+	def Hook(self, ip = None):
+		assert self._valid, "The object was already released!"
+		return self.append(self.cache["Hook"].new_obj((ip,)))
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, type, value, tb):
+		self.close()
+
+	def close(self):
+		assert self._valid, "The object was already released!"
+		while len(self.objs):
+			try:
+				o = self.objs[0]
+				o.close()
+			except Exception:
+				print(traceback.format_exc())
+
+		for i in ("Plug", "Mem", "Caller", "Symbol", "Hook"):
+			self.cache[i].releaseall_and_warn()
+
+		self._valid = False
