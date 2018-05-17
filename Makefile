@@ -7,18 +7,21 @@ REMOVE := rm
 MAKE   := make
 COPY   := cp
 
-all:
-	@if [ -d $(DEBUG_DIR) ]; then echo "$(DEBUG_DIR) directory already exists";  else $(MKDIR) $(DEBUG_DIR); fi
-	@if [ -d $(RELEASE_DIR) ]; then echo "$(RELEASE_DIR) directory already exists";  else $(MKDIR) $(RELEASE_DIR); fi
+define check_dir
+	if [ ! -d $(1) ]; then $(MKDIR) $(1); cp Makefile.$(2)   $(1)/Makefile; $(COPY) *.c *.S *.h $(1) ; fi
+endef
 
-	cp Makefile.release $(RELEASE_DIR)/Makefile
-	cp Makefile.debug   $(DEBUG_DIR)/Makefile
+all: debug release
 
-	$(COPY) *.c *.S *.h $(RELEASE_DIR)
-	$(COPY) *.c *.S *.h $(DEBUG_DIR)
 
-	@cd $(RELEASE_DIR); $(MAKE)
+debug:
+	$(call check_dir,$(DEBUG_DIR),debug)
 	@cd $(DEBUG_DIR); $(MAKE)
+
+release:
+	$(call check_dir,$(RELEASE_DIR),release)
+	@cd $(RELEASE_DIR); $(MAKE)
+
 clean:
 	@if [ -d $(RELEASE_DIR) ]; then cd $(RELEASE_DIR); $(MAKE) clean ; fi
 	@$(REMOVE) -rf $(RELEASE_DIR)
