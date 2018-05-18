@@ -1,12 +1,12 @@
-OBJECTS := cache.o calling.o calling_wrapper.o context.o env.o function.o kplugs.o memory.o queue.o stack.o vm.o
+OBJECTS := cache.o calling.o calling_wrapper.o context.o env.o function.o main.o memory.o queue.o stack.o vm.o
 
-kplugs_release-objs = $(OBJECTS)
+kplugs-objs = $(OBJECTS)
 MAKECMD  := make -C "/lib/modules/`uname -r`/build" SUBDIRS=$(PWD)
 CPPFLAGS := -Wall -x assembler-with-cpp
 MKDIR    := mkdir
 
 all:
-	@$(MAKECMD) obj-m="kplugs_release.o" modules
+	@$(MAKECMD) obj-m="kplugs.o" modules
 clean:
 	@$(MAKECMD) clean
 
