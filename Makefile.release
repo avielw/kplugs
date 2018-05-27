@@ -1,7 +1,8 @@
 OBJECTS := cache.o calling.o calling_wrapper.o context.o env.o function.o main.o memory.o queue.o stack.o vm.o
 
+kernelver ?= `uname -r`
 kplugs-objs = $(OBJECTS)
-MAKECMD  := make -C "/lib/modules/`uname -r`/build" SUBDIRS=$(PWD)
+MAKECMD  := make -C "/lib/modules/$(kernelver)/build" SUBDIRS=$(PWD)
 CPPFLAGS := -Wall -x assembler-with-cpp
 MKDIR    := mkdir
 
