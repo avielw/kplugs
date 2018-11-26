@@ -127,7 +127,11 @@ void *find_external_function(const byte *name)
 	sym = find_symbol(name, NULL, NULL, 1, 0);
 	preempt_enable();
 	if (sym != NULL) {
+#ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
+		return (void *)offset_to_ptr(&sym->value_offset);
+#else
 		return (void *)(sym->value);
+#endif
 	}
 	return NULL;
 
