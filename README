@@ -1,3 +1,5 @@
+Update: This project is not being maintained and you should probably use eBPF
+
 kplugs
 ======
 
